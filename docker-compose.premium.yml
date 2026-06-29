@@ -76,6 +76,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
+      # Gate de licencia: corta la IA si el .lic venció o no incluye 'agentelang'.
+      LICENSE_MODE: ${LICENSE_MODE:-saas}
       # AgenteLANG usa pydantic-settings: DSN único (DATABASE_URL), no DB_* sueltas.
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
       AUTH0_DOMAIN: ${AUTH0_DOMAIN}
