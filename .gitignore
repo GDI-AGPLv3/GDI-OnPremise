@@ -1,0 +1,21 @@
+# Configuración real (NUNCA commitear: tiene secrets)
+.env
+
+# Licencia del municipio
+license/
+*.lic
+
+# Repos que clona el municipio al lado (no son parte de este repo)
+/GDI-Backend/
+/GDI-Frontend/
+/GDI-BD/
+
+# Datos persistentes y volúmenes
+data/
+npm-data/
+npm_data/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log

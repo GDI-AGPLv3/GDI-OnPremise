@@ -1,0 +1,92 @@
+# ============================================================
+# GDI OnPremise — Tier Premium (módulos pagos)
+# Se SUPERPONE al docker-compose.yml. Las imágenes se bajan de ghcr.io
+# (requiere token que entrega GDI al vender) y se desbloquean con el .lic.
+#
+# Uso:
+#   docker compose -f docker-compose.yml -f docker-compose.premium.yml up -d
+# ============================================================
+
+services:
+  # El backend ahora puede hablar con AgenteLANG (IA) y suma el backoffice al CORS
+  backend:
+    environment:
+      AGENT_URL: http://agentelang:8080
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # CORS: frontend de usuarios + backoffice (lista separada por coma, el código la soporta)
+      FRONTEND_URL: ${FRONTEND_URL},${BACKOFFICE_URL}
+
+  # ---------- BackOffice Back (administración) ----------
+  backoffice-back:
+    image: ghcr.io/gdi-live/backoffice-back:${IMAGE_VERSION}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy   # espera a que las migraciones del backend creen las tablas
+    environment:
+      ENVIRONMENT: production
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # CORS: el backoffice-back acepta requests del backoffice-front
+      FRONTEND_URL: ${BACKOFFICE_URL}
+      # Almacenamiento (BackOffice sube logos/sellos a R2/MinIO)
+      CF_R2_ENDPOINT: ${CF_R2_ENDPOINT}
+      CF_R2_ACCESS_KEY_ID: ${CF_R2_ACCESS_KEY_ID}
+      CF_R2_SECRET_ACCESS_KEY: ${CF_R2_SECRET_ACCESS_KEY}
+      # Email (mismo criterio que el backend)
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      FROM_EMAIL: ${FROM_EMAIL:-GDI <noreply@localhost>}
+      # Licencia (.lic montado como volumen, NO variable)
+      GDI_LICENSE_DIR: /etc/gdi/license
+      GDI_LICENSE_HEARTBEAT_URL: ${GDI_LICENSE_HEARTBEAT_URL:-}
+    volumes:
+      - ${GDI_LICENSE_HOST_DIR:-./license}:/etc/gdi/license:ro
+    networks: [gdi_net]
+
+  # ---------- BackOffice Front ----------
+  backoffice-front:
+    image: ghcr.io/gdi-live/backoffice-front:${IMAGE_VERSION}
+    restart: unless-stopped
+    depends_on: [backoffice-back]
+    environment:
+      # Debe apuntar al backoffice-back (NO al API principal). Requerido en .env.
+      NEXT_PUBLIC_API_URL: ${BACKOFFICE_API_URL}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_CLIENT_ID: ${AUTH0_BACKOFFICE_CLIENT_ID}
+      AUTH0_CLIENT_SECRET: ${AUTH0_BACKOFFICE_CLIENT_SECRET}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      AUTH0_SECRET: ${AUTH0_SECRET}
+      AUTH0_BASE_URL: ${BACKOFFICE_URL}
+    networks: [gdi_net]
+
+  # ---------- AgenteLANG (IA) ----------
+  agentelang:
+    image: ghcr.io/gdi-live/agentelang:${IMAGE_VERSION}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # AgenteLANG usa pydantic-settings: DSN único (DATABASE_URL), no DB_* sueltas.
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      AGENT_GATEWAY_SECRET: ${AGENT_GATEWAY_SECRET:-${INTERNAL_API_KEY}}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
+      # URLs internas hacia el resto del stack (default del código apunta a localhost)
+      GDI_BACKEND_URL: http://backend:8080
+      GDI_GATEWAY_URL: http://gateway:8080
+      # AGENTELANG_MODEL: pendiente — hoy el modelo está hardcodeado en app/llm/models.py.
+      # Se activa cuando se haga configurable (roadmap). Por ahora se ignora.
+      # Licencia
+      GDI_LICENSE_DIR: /etc/gdi/license
+    volumes:
+      - ${GDI_LICENSE_HOST_DIR:-./license}:/etc/gdi/license:ro
+    networks: [gdi_net]

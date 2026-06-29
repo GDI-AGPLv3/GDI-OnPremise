@@ -1,0 +1,204 @@
+# ============================================================
+# GDI OnPremise — Tier Libre (AGPL)
+# Todos los servicios se buildean localmente desde el código fuente.
+#
+# El municipio clona en la misma carpeta:
+#   - GDI-OnPremise  (este repo, con el compose)
+#   - GDI-Backend    (backend + gateway + microservicios bundleados)
+#   - GDI-Frontend
+#   - GDI-BD         (postgres + scripts de init)
+#
+# Arranque: docker compose up -d
+# Con MinIO local:  docker compose -f docker-compose.yml -f docker-compose.minio.yml up -d
+# ============================================================
+
+name: gdi
+
+networks:
+  gdi_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  npm_data:
+  npm_letsencrypt:
+
+services:
+  # ---------- Base de datos ----------
+  postgres:
+    build:
+      context: ./GDI-BD
+      dockerfile: Dockerfile.prd   # SIN seed demo: crea public + catálogos globales, sin el tenant 100_test
+
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [gdi_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------- Cache (opcional pero recomendado) ----------
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    networks: [gdi_net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------- Microservicios (bundleados en GDI-Backend) ----------
+  pdfcomposer:
+    build: ./GDI-Backend/microservices/pdfcomposer
+    restart: unless-stopped
+    environment:
+      PDFCOMPOSER_API_KEY: ${PDFCOMPOSER_API_KEY}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+    networks: [gdi_net]
+    # Sin puerto expuesto al host: solo lo usa el backend por la red interna (:8080)
+
+  notary:
+    build: ./GDI-Backend/microservices/notary
+    restart: unless-stopped
+    environment:
+      NOTARY_API_KEY: ${NOTARY_API_KEY}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # Storage (Notary lee/escribe PDFs firmados en R2/MinIO)
+      CF_R2_ENDPOINT: ${CF_R2_ENDPOINT}
+      CF_R2_ACCESS_KEY_ID: ${CF_R2_ACCESS_KEY_ID}
+      CF_R2_SECRET_ACCESS_KEY: ${CF_R2_SECRET_ACCESS_KEY}
+    networks: [gdi_net]
+
+  # ---------- Backend principal ----------
+  backend:
+    build: ./GDI-Backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Modo (cierra /docs, /redoc, /openapi.json)
+      ENVIRONMENT: production
+      # Base de datos
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      # Cache
+      REDIS_URL: redis://redis:6379/0
+      # Auth0 (el backend valida el JWT)
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      AUTH0_ISSUERS: ${AUTH0_ISSUERS:-}
+      # CORS: orígenes permitidos (URL pública del frontend)
+      FRONTEND_URL: ${FRONTEND_URL}
+      # Microservicios internos (todos escuchan en :8080)
+      PDFCOMPOSER_URL: http://pdfcomposer:8080
+      PDFCOMPOSER_API_KEY: ${PDFCOMPOSER_API_KEY}
+      NOTARY_URL: http://notary:8080
+      NOTARY_API_KEY: ${NOTARY_API_KEY}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # Almacenamiento (R2 o MinIO — ver .env)
+      CF_R2_ENDPOINT: ${CF_R2_ENDPOINT}
+      CF_R2_ACCESS_KEY_ID: ${CF_R2_ACCESS_KEY_ID}
+      CF_R2_SECRET_ACCESS_KEY: ${CF_R2_SECRET_ACCESS_KEY}
+      CF_R2_BUCKET_OFICIAL: ${CF_R2_BUCKET_OFICIAL}
+      CF_R2_BUCKET_TOSIGN: ${CF_R2_BUCKET_TOSIGN}
+      # Email (Resend si hay key; SMTP si hay host; si no, silencioso)
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      FROM_EMAIL: ${FROM_EMAIL:-GDI <noreply@localhost>}
+      ALERT_TO_EMAIL: ${ALERT_TO_EMAIL:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_TLS: ${SMTP_TLS:-true}
+      SMTP_SSL: ${SMTP_SSL:-false}
+    networks: [gdi_net]
+    healthcheck:
+      # /health responde 200 sano, 503 si la BD no está lista. start_period da margen a las migraciones.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health').status==200 else 1)\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # ---------- MCP Gateway ----------
+  gateway:
+    build:
+      context: ./GDI-Backend
+      dockerfile: Dockerfile.gateway
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: production
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      AGENT_GATEWAY_SECRET: ${AGENT_GATEWAY_SECRET:-${INTERNAL_API_KEY}}
+    networks: [gdi_net]
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/.well-known/mcp.json').status==200 else 1)\""]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ---------- Frontend ----------
+  frontend:
+    build:
+      context: ./GDI-Frontend
+      args:
+        # NEXT_PUBLIC_* se hornea en build (Next lo inlinea en el bundle del cliente).
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    restart: unless-stopped
+    depends_on: [backend]
+    environment:
+      # URLs públicas (las sirve nginx-proxy-manager por HTTPS)
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      # Auth0 — app del frontend (portal de usuarios)
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN}
+      AUTH0_CLIENT_ID: ${AUTH0_FRONTEND_CLIENT_ID}
+      AUTH0_CLIENT_SECRET: ${AUTH0_FRONTEND_CLIENT_SECRET}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
+      AUTH0_SECRET: ${AUTH0_SECRET}
+      AUTH0_BASE_URL: ${FRONTEND_URL}
+    networks: [gdi_net]
+    # Next.js escucha en :3000 internamente; npm lo proxea a :443
+
+  # ---------- Reverse proxy + SSL (UI web) ----------
+  npm:
+    image: jc21/nginx-proxy-manager:latest
+    restart: unless-stopped
+    depends_on: [frontend, backend]
+    ports:
+      - "80:80"     # HTTP (redirige a HTTPS)
+      - "443:443"   # HTTPS (frontend + API)
+      - "81:81"     # Panel de administración de npm (cambiar password al primer login)
+    volumes:
+      - npm_data:/data
+      - npm_letsencrypt:/etc/letsencrypt
+    networks: [gdi_net]
