@@ -25,6 +25,8 @@ services:
         condition: service_healthy   # espera a que las migraciones del backend creen las tablas
     environment:
       ENVIRONMENT: production
+      # Habilita el wizard "crear instancia" y manda los buckets a MinIO (no Cloudflare).
+      LICENSE_MODE: ${LICENSE_MODE:-saas}
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT}
       DB_USER: ${DB_USER}
@@ -35,10 +37,11 @@ services:
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       # CORS: el backoffice-back acepta requests del backoffice-front
       FRONTEND_URL: ${BACKOFFICE_URL}
-      # Almacenamiento (BackOffice sube logos/sellos a R2/MinIO)
+      # Almacenamiento (BackOffice sube logos/sellos + crea buckets per-tenant en MinIO)
       CF_R2_ENDPOINT: ${CF_R2_ENDPOINT}
       CF_R2_ACCESS_KEY_ID: ${CF_R2_ACCESS_KEY_ID}
       CF_R2_SECRET_ACCESS_KEY: ${CF_R2_SECRET_ACCESS_KEY}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
       # Email (mismo criterio que el backend)
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       FROM_EMAIL: ${FROM_EMAIL:-GDI <noreply@localhost>}
