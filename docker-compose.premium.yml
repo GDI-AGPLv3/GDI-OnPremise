@@ -22,7 +22,7 @@ services:
     restart: unless-stopped
     depends_on:
       backend:
-        condition: service_healthy   # espera a que las migraciones del backend creen las tablas
+        condition: service_healthy   # backend ya esperó al migrator → las tablas están listas (transitivo)
     environment:
       ENVIRONMENT: production
       # Habilita el wizard "crear instancia" y manda los buckets a MinIO (no Cloudflare).
@@ -75,6 +75,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      # Espera a que las migraciones estén aplicadas: el AIWorker hace SELECT/INSERT
+      # sobre tablas/columnas que las migraciones crean.
+      migrator:
+        condition: service_completed_successfully
     environment:
       # Gate de licencia: corta la IA si el .lic venció o no incluye 'agentelang'.
       LICENSE_MODE: ${LICENSE_MODE:-saas}
@@ -88,8 +92,9 @@ services:
       # URLs internas hacia el resto del stack (default del código apunta a localhost)
       GDI_BACKEND_URL: http://backend:8080
       GDI_GATEWAY_URL: http://gateway:8080
-      # AGENTELANG_MODEL: pendiente — hoy el modelo está hardcodeado en app/llm/models.py.
-      # Se activa cuando se haga configurable (roadmap). Por ahora se ignora.
+      # Modelo IA (opcional). Vacío = default del código (gpt-4.1-nano via OpenRouter).
+      # Si lo cambiás y transcribís PDFs importados, usá un modelo multimodal (visión).
+      AGENTELANG_MODEL: ${AGENTELANG_MODEL:-}
       # Licencia
       GDI_LICENSE_DIR: /etc/gdi/license
     volumes:

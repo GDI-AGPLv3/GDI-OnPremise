@@ -59,6 +59,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---------- Runner de migraciones (corre y termina) ----------
+  # Aplica las migraciones SQL pendientes a la BD ANTES de que arranque el backend.
+  # Monta el runner + las migraciones de GDI-BD (un `git pull` las actualiza sin rebuild).
+  migrator:
+    build:
+      context: ./GDI-BD
+      dockerfile: Dockerfile.migrator
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      MIGRATIONS_DIR: /migrations
+    volumes:
+      - ./GDI-BD/tools/run_migrations.py:/app/run_migrations.py:ro
+      - ./GDI-BD/sql/migrations:/migrations:ro
+    networks: [gdi_net]
+
   # ---------- Microservicios (bundleados en GDI-Backend) ----------
   pdfcomposer:
     build: ./GDI-Backend/microservices/pdfcomposer
@@ -90,6 +109,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     environment:
       # Modo (cierra /docs, /redoc, /openapi.json)
       ENVIRONMENT: production
@@ -148,6 +169,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     environment:
       ENVIRONMENT: production
       DB_HOST: ${DB_HOST}
