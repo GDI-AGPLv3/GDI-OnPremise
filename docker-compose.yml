@@ -142,7 +142,9 @@ services:
       CF_R2_BUCKET_TOSIGN: ${CF_R2_BUCKET_TOSIGN}
       # Email (Resend si hay key; SMTP si hay host; si no, silencioso)
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      FROM_EMAIL: ${FROM_EMAIL:-GDI <noreply@localhost>}
+      # Sin default: 'noreply@localhost' no es un remitente valido para ningun
+      # servidor de correo real. Lo pone el municipio en su .env.
+      FROM_EMAIL: ${FROM_EMAIL:-}
       ALERT_TO_EMAIL: ${ALERT_TO_EMAIL:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}

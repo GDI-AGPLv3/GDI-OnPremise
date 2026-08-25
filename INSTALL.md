@@ -16,10 +16,10 @@ Los 4 repos van en la misma carpeta:
 
 ```bash
 mkdir /opt/gdi && cd /opt/gdi
-git clone https://github.com/GDI-APGLv3/GDI-OnPremise.git .
-git clone https://github.com/GDI-APGLv3/GDI-Backend.git
-git clone https://github.com/GDI-APGLv3/GDI-Frontend.git
-git clone https://github.com/GDI-APGLv3/GDI-BD.git
+git clone https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
+git clone https://github.com/GDI-AGPLv3/GDI-Backend.git
+git clone https://github.com/GDI-AGPLv3/GDI-Frontend.git
+git clone https://github.com/GDI-AGPLv3/GDI-BD.git
 ```
 
 > Los microservicios (pdfcomposer, notary) vienen **dentro de GDI-Backend** (`microservices/`), no se clonan aparte.

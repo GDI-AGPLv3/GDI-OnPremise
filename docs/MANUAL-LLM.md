@@ -34,6 +34,8 @@ y el técnico pudiendo loguearse al BackOffice.
 | `<AUTH0_AUDIENCE>` | Identifier inventado en Auth0 → APIs | https://gdi-api |
 | `<AUTH0_FRONTEND_CLIENT_ID/SECRET>` | App Auth0 "Frontend" | — |
 | `<AUTH0_BACKOFFICE_CLIENT_ID/SECRET>` | App Auth0 "BackOffice" | — |
+| `<AUTH0_M2M_CLIENT_ID/SECRET>` | App Auth0 "Machine to Machine" (Management API) — sin esto no se crean usuarios | — |
+| `<SMTP_*>` / `<RESEND_API_KEY>` | Servidor de correo del municipio (o Resend) | mail.tu-municipio.gob.ar |
 | `<OPENROUTER_API_KEY>` | openrouter.ai | sk-or-xxx |
 | `<DB_PASSWORD>`, `<MINIO_PASSWORD>` | inventadas, seguras | — |
 
@@ -51,10 +53,10 @@ CHECK: `docker compose version` imprime v2.x. Si no: FAILURES/F1.
 ### P2 — Clonar
 ```bash
 sudo mkdir -p /opt/gdi && sudo chown $USER /opt/gdi && cd /opt/gdi
-git clone https://github.com/GDI-APGLv3/GDI-OnPremise.git .
-git clone https://github.com/GDI-APGLv3/GDI-Backend.git
-git clone https://github.com/GDI-APGLv3/GDI-Frontend.git
-git clone https://github.com/GDI-APGLv3/GDI-BD.git
+git clone https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
+git clone https://github.com/GDI-AGPLv3/GDI-Backend.git
+git clone https://github.com/GDI-AGPLv3/GDI-Frontend.git
+git clone https://github.com/GDI-AGPLv3/GDI-BD.git
 ```
 CHECK: existen `/opt/gdi/docker-compose.yml`, `/opt/gdi/GDI-Backend/microservices/pdfcomposer/`,
 `/opt/gdi/GDI-Backend/microservices/notary/`, `/opt/gdi/GDI-Frontend/Dockerfile`, `/opt/gdi/GDI-BD/Dockerfile.prd`.
@@ -65,8 +67,13 @@ Si falta `microservices/`: FAILURES/F2.
 2. Crear 2 Regular Web Applications:
    - Frontend → Callback `https://gdi.<BASE>/auth/callback`, Logout/Web Origins `https://gdi.<BASE>`.
    - BackOffice → Callback `https://admin.<BASE>/auth/callback`, Logout/Web Origins `https://admin.<BASE>`.
-3. Recolectar los 2 client_id + 2 client_secret.
-CHECK: tenés AUTH0_DOMAIN, AUDIENCE, y los 2 pares client_id/secret.
+3. Crear 1 Machine to Machine Application (OBLIGATORIA — sin esto el alta de
+   usuarios devuelve 502 "Sistema de autenticacion no disponible"):
+   - autorizarla contra la **Auth0 Management API** (la de fabrica, no la del punto 1);
+   - scopes minimos: `read:users`, `create:users`, `update:users`, `create:user_tickets`;
+   - su client_id/secret van a `AUTH0_M2M_CLIENT_ID` / `AUTH0_M2M_CLIENT_SECRET`.
+4. Recolectar los 2 client_id + 2 client_secret de login, y el par M2M.
+CHECK: tenés AUTH0_DOMAIN, AUDIENCE, los 2 pares client_id/secret y el par M2M.
 
 ### P4 — .env
 ```bash
@@ -77,6 +84,11 @@ Editar `.env` y setear (con los valores del usuario):
 DB_PASSWORD, AUTH0_DOMAIN, AUTH0_AUDIENCE,
 AUTH0_FRONTEND_CLIENT_ID, AUTH0_FRONTEND_CLIENT_SECRET,
 AUTH0_BACKOFFICE_CLIENT_ID, AUTH0_BACKOFFICE_CLIENT_SECRET,
+AUTH0_M2M_CLIENT_ID, AUTH0_M2M_CLIENT_SECRET,
+# Correo (opcional pero recomendado): SMTP propio del municipio.
+# Sin correo, el alta de usuarios devuelve activation_url y el BackOffice lo
+# muestra en pantalla (un solo uso, vence a los 5 dias).
+# SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, FROM_EMAIL  (o RESEND_API_KEY)
 FRONTEND_URL=https://gdi.<BASE>
 NEXT_PUBLIC_API_URL=https://api.<BASE>
 BACKOFFICE_URL=https://admin.<BASE>
@@ -138,7 +150,7 @@ muestra el asistente → completar datos → se crea schema + buckets + admin.
 ## FAILURES
 - F1 (docker compose no existe): instalar plugin `docker-compose-plugin` o re-loguear para tomar el grupo docker.
 - F2 (falta GDI-Backend/microservices/): el clone trajo el repo equivocado o incompleto. Re-clonar
-  `https://github.com/GDI-APGLv3/GDI-Backend.git`. NO se clonan repos pdfcomposer/notary separados.
+  `https://github.com/GDI-AGPLv3/GDI-Backend.git`. NO se clonan repos pdfcomposer/notary separados.
 - F3 (docker login falla): token vencido/incorrecto. Pedir token nuevo a GDI Latam.
 - F4 (servicio restarting): leer `docker compose logs <servicio>`. Causas típicas:
   - falta una env en `.env` → completarla.
