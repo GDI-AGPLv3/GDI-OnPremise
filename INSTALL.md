@@ -77,12 +77,18 @@ docker compose -f docker-compose.yml -f docker-compose.premium.yml up -d
 
 ## Actualizar
 
-```bash
-# Tier libre: actualizar fuente y rebuildar
-git -C GDI-Backend pull && git -C GDI-Frontend pull && git -C GDI-BD pull
-docker compose up -d --build
+> 🛑 **Nunca actualices sin backup.** La actualización aplica migraciones a la base y **eso no
+> se revierte**: volver a la versión anterior de las imágenes deja el schema migrado contra
+> código viejo. Ver *Backups* en [`docs/MANUAL.md`](docs/MANUAL.md#12-backups).
 
-# Tier pago: bajar nuevas imágenes (subí IMAGE_VERSION en el .env primero)
+GDI Latam avisa por mail cuando sale una versión nueva. **No hay actualización automática:**
+la corrés vos, en la ventana que elijas.
+
+```bash
+nano .env    # IMAGE_VERSION=<la versión nueva>
 docker compose -f docker-compose.yml -f docker-compose.premium.yml pull
 docker compose -f docker-compose.yml -f docker-compose.premium.yml up -d
 ```
+
+El paso a paso completo (verificación, rollback, qué hacer si el `pull` da `denied`) está en
+[`docs/MANUAL.md`](docs/MANUAL.md#11-actualizar-gdi).
