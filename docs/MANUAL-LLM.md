@@ -160,7 +160,40 @@ muestra el asistente → completar datos → se crea schema + buckets + admin.
 
 ## OPERACIÓN
 - Estado: `docker compose ps`. Logs: `docker compose logs -f <servicio>`.
-- Update: `git -C GDI-Backend pull && git -C GDI-Frontend pull && git -C GDI-BD pull`; subir `IMAGE_VERSION`
-  en `.env`; `docker compose ... pull`; `docker compose ... up -d --build`.
-- Backup BD: `docker compose exec -T postgres pg_dump -U postgres railway -Fc > backup-$(date +%F).dump`.
-  Copiar el dump FUERA del servidor.
+
+### UPDATE — REGLA DURA: NUNCA actualizar sin backup previo
+Una update aplica migraciones IRREVERSIBLES. Bajar `IMAGE_VERSION` NO revierte el schema.
+Si el usuario pide actualizar y no hay backup del día, HACER EL BACKUP PRIMERO o NEGARSE.
+Nada es automático: el municipio decide cuándo. No programar updates ni sugerir cron de update.
+
+```bash
+# 0. BACKUP COMPLETO (ver abajo) y verificar tamaños con `ls -lh`
+nano .env    # IMAGE_VERSION=<version nueva que indicó GDI>
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml pull
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
+docker compose ps && docker compose logs --tail=50 backend
+```
+Rollback = DOS cosas: bajar `IMAGE_VERSION` **y** restaurar el dump. Solo lo primero deja el
+schema migrado contra código viejo (sistema roto).
+
+### DOS LLAVES DISTINTAS — no confundirlas al diagnosticar
+- Token `ghcr.io` → controla si BAJAN las imágenes (`pull`). Falla = `denied`/`unauthorized`.
+  También es lo que permite REINSTALAR: sin token activo no se baja ni la versión ya usada.
+- Archivo `.lic` → controla si FUNCIONAN BackOffice e IA (al arrancar y cada 6 h). El núcleo
+  (expedientes, documentos, firma) no se corta nunca por licencia.
+
+### BACKUP — cinco cosas, no una
+`gdi_postgres_data` (BD) · `gdi_minio_data` (documentos, solo si MinIO) · `.env` · `license/*.lic` ·
+imágenes Docker (`docker save`, para poder reinstalar sin token).
+
+```bash
+mkdir -p backups && FECHA=$(date +%F)
+docker compose exec -T postgres pg_dump -U postgres railway -Fc > backups/gdi-$FECHA.dump
+docker run --rm -v gdi_minio_data:/data -v /opt/gdi/backups:/backup alpine   tar czf /backup/minio-$FECHA.tar.gz -C /data .
+tar czf backups/config-$FECHA.tar.gz .env license/
+# solo al actualizar, no a diario:
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml   images | awk 'NR>1 {print $2":"$3}' | sort -u > backups/imagenes-$FECHA.txt
+docker save $(cat backups/imagenes-$FECHA.txt) | gzip > backups/imagenes-$FECHA.tar.gz
+```
+Verificar con `ls -lh backups/`: un dump de pocos KB NO es un backup. Copiar FUERA del servidor.
+`.env` y `.lic` contienen secretos: tratarlos como contraseñas.

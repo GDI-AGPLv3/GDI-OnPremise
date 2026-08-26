@@ -12,6 +12,7 @@ Este manual describe el flujo Premium completo. Algunas automatizaciones están 
 - 🚧 Verificación automática de licencia `.lic`
 - 🚧 Wizard visual "crear instancia" en el BackOffice
 - 🚧 Runner de migraciones de BD al arranque
+- 🚧 Los pasos **3** y **7** todavía describen la instalación compilando el código; el paso **11** (actualizar) ya asume el modelo definitivo, en el que todo baja como imagen. Se unifican cuando se publique la primera versión.
 
 Donde veas 🚧, el paso final puede requerir asistencia de GDI Latam por ahora.
 
@@ -312,35 +313,167 @@ Desde el BackOffice → Usuarios, cargás a la gente de tu municipio.
 
 ## 11. Actualizar GDI
 
-Cuando GDI publica una versión nueva:
+> ## 🛑 ANTES DE ACTUALIZAR: BACKUP
+>
+> Una actualización **aplica migraciones a la base de datos, y eso no tiene vuelta atrás**:
+> volver a la imagen anterior **no** revierte el schema. Si algo sale mal, lo único que te
+> devuelve el sistema es la copia que hiciste antes.
+>
+> **Hacé el backup completo de la [sección 12](#12-backups) ahora, no después.**
+
+GDI Latam te avisa **por mail** cuando hay una versión nueva. **Nada se actualiza solo:**
+actualizás vos, el día y la hora que elijas. Es a propósito — actualizar el sistema de
+expedientes de un municipio es un acto administrativo, no algo que deba pasar de madrugada
+sin que nadie lo haya decidido.
+
+### Antes de empezar
+
+- Hacé el backup completo (sección 12) y **verificá que el dump no quedó vacío**
+  (`ls -lh` sobre el archivo: si pesa unos pocos KB, algo falló).
+- Elegí una ventana fuera del horario de atención y avisá a los usuarios.
+- Leé la nota de la versión que te mandamos: ahí decimos si hay algo que requiere atención.
+
+### Actualizar
 
 ```bash
 cd /opt/gdi
-# Código abierto (backend, frontend, BD)
-git -C GDI-Backend pull && git -C GDI-Frontend pull && git -C GDI-BD pull
-# Imágenes pagas: subí IMAGE_VERSION en el .env y bajá las nuevas
-nano .env   # IMAGE_VERSION=1.1.0
+
+# 1. La versión nueva (la que dice el mail de GDI)
+nano .env                      # IMAGE_VERSION=1.1.0
+
+# 2. Bajar las imágenes nuevas
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml pull
-docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d --build
+
+# 3. Reemplazar los contenedores por los de la versión nueva
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
 ```
 
-🚧 Las migraciones de base de datos se aplicarán solas al reiniciar el backend (runner en construcción). Por ahora, GDI te avisa si una actualización requiere correr migraciones a mano.
+Si usás Cloudflare R2 en lugar de MinIO, sacá el `-f docker-compose.minio.yml` de los dos comandos.
+
+### Verificar que quedó bien
+
+```bash
+docker compose ps                       # todos "running", ninguno reiniciando
+docker compose logs --tail=50 backend   # el arranque termina sin errores
+```
+
+Entrá al portal y al BackOffice y abrí un expediente. Si algo quedó mal, es **ahora** cuando
+querés enterarte, con el backup fresco y la ventana todavía abierta.
+
+### Si hay que volver atrás
+
+Volver a la versión anterior son **dos** cosas, y las dos son necesarias:
+
+```bash
+nano .env    # IMAGE_VERSION=<la versión anterior>
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
+```
+
+...y **restaurar el dump de la base** (sección 12). Bajar solo la versión de las imágenes
+deja el schema migrado contra un código viejo: eso no es "volver atrás", es un sistema roto
+de otra manera.
+
+### Por qué a veces no baja una imagen
+
+Hay dos llaves distintas y conviene no confundirlas:
+
+| | Qué controla | Cuándo actúa |
+|---|---|---|
+| **Token de `ghcr.io`** | si podés **bajar** imágenes | al hacer `pull` |
+| **Archivo `.lic`** | si **funcionan** BackOffice e IA | al arrancar y cada 6 h |
+
+Si el `pull` da `denied` o `unauthorized`, es el **token** (vencido, revocado, o se perdió la
+sesión de `docker login`): rehacé el paso 7 y, si sigue, escribinos. Si las imágenes bajan y
+levantan pero el BackOffice te avisa de la licencia, es el **`.lic`**, y se resuelve renovando
+el contrato — el núcleo (expedientes, documentos, firma) sigue funcionando igual.
+
+> ⚠️ El token es también lo que te permite **reinstalar**. Si algún día se te muere el servidor
+> y el token ya no está activo, no vas a poder bajar ni la versión que estabas usando. Por eso
+> la sección 12 pide guardar una **copia local de las imágenes**: con eso el sistema se levanta
+> de nuevo aunque no tengas acceso al registro.
+
+🚧 Las migraciones de base de datos se aplican solas al arrancar el backend (runner en
+construcción). Por ahora, GDI te avisa si una actualización requiere correr migraciones a mano.
 
 ---
 
 ## 12. Backups
 
-Los datos viven en volúmenes Docker:
-- `gdi_postgres_data` — la base de datos (lo más importante).
-- `gdi_minio_data` — los documentos (si usás MinIO).
+### Qué hay que copiar
 
-Backup manual de la base:
+No alcanza con la base. Un servidor que se pierde se recupera con **cinco** cosas:
+
+| Qué | Dónde vive | Sin esto... |
+|---|---|---|
+| **Base de datos** | volumen `gdi_postgres_data` | no hay nada: expedientes, usuarios, todo |
+| **Documentos** | volumen `gdi_minio_data` (si usás MinIO) | la base referencia archivos que no existen |
+| **`.env`** | `/opt/gdi/.env` | no podés levantar: claves, Auth0, contraseñas |
+| **Licencia `.lic`** | `/opt/gdi/license/` | arranca sin BackOffice ni IA |
+| **Imágenes Docker** | el registro… o tu copia local | si el token no está activo, no podés reinstalar |
+
+> Si usás **Cloudflare R2** en lugar de MinIO, los documentos ya están afuera del servidor y
+> no entran en este backup.
+
+### Backup completo
 
 ```bash
-docker compose exec -T postgres pg_dump -U postgres railway -Fc > /opt/gdi/backups/gdi-$(date +%F).dump
+mkdir -p /opt/gdi/backups && cd /opt/gdi
+FECHA=$(date +%F)
+
+# 1. Base de datos
+docker compose exec -T postgres pg_dump -U postgres railway -Fc > backups/gdi-$FECHA.dump
+
+# 2. Documentos (solo si usás MinIO)
+docker run --rm -v gdi_minio_data:/data -v /opt/gdi/backups:/backup alpine \
+  tar czf /backup/minio-$FECHA.tar.gz -C /data .
+
+# 3. Configuración y licencia
+tar czf backups/config-$FECHA.tar.gz .env license/
+
+# 4. Imágenes (una vez por versión, no todos los días)
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml \
+  images | awk 'NR>1 {print $2":"$3}' | sort -u > backups/imagenes-$FECHA.txt
+docker save $(cat backups/imagenes-$FECHA.txt) | gzip > backups/imagenes-$FECHA.tar.gz
 ```
 
-> ⚠️ Sos responsable de copiar estos backups a un lugar **fuera del servidor** (otro disco, nube, etc.).
+Verificá que los archivos pesen algo razonable:
+
+```bash
+ls -lh backups/
+```
+
+Un dump de unos pocos KB **no es un backup**: es un error que no miraste.
+
+### Restaurar
+
+```bash
+cd /opt/gdi
+
+# Imágenes, si no tenés acceso al registro
+gunzip -c backups/imagenes-AAAA-MM-DD.tar.gz | docker load
+
+# Configuración
+tar xzf backups/config-AAAA-MM-DD.tar.gz
+
+# Base de datos (con el sistema abajo salvo postgres)
+docker compose up -d postgres
+docker compose exec -T postgres pg_restore -U postgres -d railway --clean --if-exists \
+  < backups/gdi-AAAA-MM-DD.dump
+
+# Documentos
+docker run --rm -v gdi_minio_data:/data -v /opt/gdi/backups:/backup alpine \
+  tar xzf /backup/minio-AAAA-MM-DD.tar.gz -C /data
+```
+
+### Reglas mínimas
+
+- **Automatizá el backup diario** (un `cron` con los pasos 1 a 3). El paso 4 solo cuando actualizás.
+- ⚠️ **Copiá los backups fuera del servidor** — otro disco, otra máquina, la nube. Un backup que
+  vive en el mismo servidor que la base no sirve para el caso en que más lo vas a necesitar.
+- **Probá una restauración** al menos una vez, en otra máquina. Un backup que nunca se restauró
+  es una suposición, no una copia.
+- El `.env` y el `.lic` tienen **secretos**: guardá esas copias con el mismo cuidado que las
+  contraseñas del municipio.
 
 ---
 
