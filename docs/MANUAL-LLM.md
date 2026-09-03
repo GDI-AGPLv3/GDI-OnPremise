@@ -124,7 +124,9 @@ CHECK (esperar 3-5 min en el primer build):
 Si algún servicio `restarting`: `docker compose logs <servicio>` → FAILURES/F4.
 
 ### P7 — Dominios + SSL (nginx-proxy-manager, UI en :81)
-1. Abrir `http://<IP_SERVER>:81`. Login `admin@example.com`/`changeme`. CAMBIAR credenciales de inmediato.
+1. El panel escucha SOLO en localhost. Tunel: `ssh -L 8181:localhost:81 user@server` -> `http://localhost:8181`.
+   NO existe usuario por defecto: la primera visita CREA el admin. Hacerlo de inmediato: hasta
+   entonces un `POST /api/users` sin autenticar se queda con el proxy.
 2. Crear 4 Proxy Hosts (Hosts → Proxy Hosts → Add):
    | Domain | Forward Hostname | Port |
    |--------|------------------|------|
@@ -168,7 +170,9 @@ Nada es automático: el municipio decide cuándo. No programar updates ni sugeri
 
 ```bash
 # 0. BACKUP COMPLETO (ver abajo) y verificar tamaños con `ls -lh`
-nano .env    # IMAGE_VERSION=<version nueva que indicó GDI>
+nano .env    # IMAGE_VERSION=<version nueva que indico GDI, formato AAAA.MM>
+# 7 de los 10 servicios se compilan local: sin git pull + --build no se actualizan.
+for r in . GDI-Backend GDI-Frontend GDI-BD; do git -C "$r" pull --ff-only; done
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml pull
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
 docker compose ps && docker compose logs --tail=50 backend
