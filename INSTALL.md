@@ -51,7 +51,9 @@ docker compose up -d --build
 ## 4. Configurar dominio + SSL
 
 1. Entrá a `http://TU-SERVIDOR:81` (panel de nginx-proxy-manager).
-2. Login inicial: `admin@example.com` / `changeme` → **cambialo en el primer ingreso**.
+2. El panel escucha solo en `localhost`: entrá por tunel SSH
+   (`ssh -L 8181:localhost:81 usuario@servidor` y abrí `http://localhost:8181`).
+   La primera vez **creás vos** el usuario administrador; hacelo enseguida.
 3. Creá un Proxy Host para tu dominio del frontend → apunta a `frontend:3000`.
 4. Creá otro para la API → apunta a `backend:8080`.
 5. En cada uno: pestaña SSL → "Request a new SSL Certificate" (Let's Encrypt, automático).
@@ -85,10 +87,14 @@ GDI Latam avisa por mail cuando sale una versión nueva. **No hay actualización
 la corrés vos, en la ventana que elijas.
 
 ```bash
-nano .env    # IMAGE_VERSION=<la versión nueva>
+nano .env    # IMAGE_VERSION=<la versión nueva, formato AAAA.MM>
+for r in . GDI-Backend GDI-Frontend GDI-BD; do git -C "$r" pull --ff-only; done
 docker compose -f docker-compose.yml -f docker-compose.premium.yml pull
-docker compose -f docker-compose.yml -f docker-compose.premium.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.premium.yml up -d --build
 ```
+
+> ⚠️ El `git pull` y el `--build` no son opcionales: 7 de los 10 servicios se compilan
+> en tu servidor y un `pull` solo no los actualiza.
 
 El paso a paso completo (verificación, rollback, qué hacer si el `pull` da `denied`) está en
 [`docs/MANUAL.md`](docs/MANUAL.md#11-actualizar-gdi).

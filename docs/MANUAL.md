@@ -12,7 +12,11 @@ Este manual describe el flujo Premium completo. Algunas automatizaciones están 
 - 🚧 Verificación automática de licencia `.lic`
 - 🚧 Wizard visual "crear instancia" en el BackOffice
 - 🚧 Runner de migraciones de BD al arranque
-- 🚧 Los pasos **3** y **7** todavía describen la instalación compilando el código; el paso **11** (actualizar) ya asume el modelo definitivo, en el que todo baja como imagen. Se unifican cuando se publique la primera versión.
+- 🚧 Runner de migraciones: hoy el esquema queda en el estado del instalador inicial.
+- ℹ️ La instalación es **híbrida y así funciona**: 7 servicios se compilan en tu servidor
+  (backend, gateway, portal, base de datos y los 2 microservicios) y 3 bajan como imagen
+  desde el registro de GDI (BackOffice, BackOffice-Front y AgenteLANG). Los pasos 3, 7 y 11
+  reflejan esa realidad: por eso actualizar necesita `git pull` **y** `--build`, no solo `pull`.
 
 Donde veas 🚧, el paso final puede requerir asistencia de GDI Latam por ahora.
 
@@ -33,7 +37,7 @@ Guardá los dos en un lugar seguro. Los vas a usar en los pasos 6 y 7.
 | Recurso | Mínimo (Premium con IA) |
 |---------|-------------------------|
 | Sistema | Linux (Ubuntu 22.04+). Windows solo con WSL2, sin soporte oficial |
-| RAM | 10 GB |
+| RAM | 4 GB (medido: 2 GB en uso con los 13 contenedores) |
 | CPU | 4 vCPU |
 | Disco | 80 GB |
 | Red | Un **dominio** apuntando al servidor (HTTPS es obligatorio — Auth0 lo exige) |
@@ -157,6 +161,10 @@ nano .env
 Completá estos valores (el resto podés dejarlos por default):
 
 ```env
+# Versión del set de imágenes — te la indica GDI en el mail de entrega.
+# Si no coincide con una versión publicada, el paso 7 falla con "manifest unknown".
+IMAGE_VERSION=2026.08
+
 # Base de datos
 DB_PASSWORD=una-password-larga-y-segura
 
@@ -274,9 +282,19 @@ docker compose logs -f backend
 
 El reverse proxy (nginx-proxy-manager) tiene una interfaz web. **No hace falta tocar archivos ni comandos certbot.**
 
-1. Entrá a `http://IP-DE-TU-SERVIDOR:81`.
-2. Login inicial: `admin@example.com` / `changeme`.
-   - ⚠️ **Cambiá el email y la password apenas entres.** Ese panel queda expuesto.
+1. El panel **no se publica a internet** a propósito: escucha solo en `localhost`.
+   Abrí un túnel SSH desde tu máquina y entrá por ahí:
+
+   ```bash
+   ssh -L 8181:localhost:81 usuario@IP-DE-TU-SERVIDOR
+   # dejá esa terminal abierta y andá a http://localhost:8181
+   ```
+
+2. La primera vez te pide **crear el usuario administrador**. Poné un mail real del
+   municipio y una password fuerte.
+   - ⚠️ **Hacelo apenas levantes el sistema, no lo dejes para después.** Hasta que ese
+     usuario exista, cualquiera que alcance el panel puede crearlo y quedarse con el
+     proxy — y con él, con el control de a dónde apunta cada dominio.
 3. Para cada uno de los 4 dominios, creá un **Proxy Host** (pestaña Hosts → Proxy Hosts → Add Proxy Host):
 
 | Domain Name | Forward Hostname | Forward Port |
@@ -285,6 +303,11 @@ El reverse proxy (nginx-proxy-manager) tiene una interfaz web. **No hace falta t
 | api.tu-municipio.gob.ar | `backend` | 8080 |
 | admin.tu-municipio.gob.ar | `backoffice-front` | 3000 |
 | admin-api.tu-municipio.gob.ar | `backoffice-back` | 8080 |
+
+> ℹ️ **Si más adelante cambiás alguno de los 4 dominios**, no alcanza con reiniciar:
+> el portal lleva la dirección de la API incrustada desde que se compiló. Hay que
+> actualizar el `.env` y recompilarlo:
+> `docker compose ... up -d --build frontend`
 
 4. En cada Proxy Host, pestaña **SSL** → "Request a new SSL Certificate" → tildá "Force SSL" y "HTTP/2 Support" → Save. (Let's Encrypt emite el certificado solo.)
 
@@ -339,14 +362,23 @@ sin que nadie lo haya decidido.
 cd /opt/gdi
 
 # 1. La versión nueva (la que dice el mail de GDI)
-nano .env                      # IMAGE_VERSION=1.1.0
+nano .env                      # IMAGE_VERSION=2026.09  (formato AAAA.MM)
 
-# 2. Bajar las imágenes nuevas
+# 2. Traer el código nuevo de los servicios que se compilan en tu servidor
+#    (backend, gateway, frontend, base de datos y los microservicios)
+for r in . GDI-Backend GDI-Frontend GDI-BD; do git -C "$r" pull --ff-only; done
+
+# 3. Bajar las imágenes nuevas de los módulos Premium
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml pull
 
-# 3. Reemplazar los contenedores por los de la versión nueva
-docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
+# 4. Recompilar y reemplazar los contenedores por los de la versión nueva
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d --build
 ```
+
+> ⚠️ **Los pasos 2 y 4 no son opcionales.** De los 10 servicios de GDI, solo 3
+> (BackOffice, BackOffice-Front y AgenteLANG) bajan como imagen. Los otros 7 se
+> compilan en tu servidor, así que un `pull` solo **no los actualiza**: te quedarías
+> con los módulos Premium nuevos hablándole a un backend viejo.
 
 Si usás Cloudflare R2 en lugar de MinIO, sacá el `-f docker-compose.minio.yml` de los dos comandos.
 
@@ -365,7 +397,7 @@ querés enterarte, con el backup fresco y la ventana todavía abierta.
 Volver a la versión anterior son **dos** cosas, y las dos son necesarias:
 
 ```bash
-nano .env    # IMAGE_VERSION=<la versión anterior>
+nano .env    # IMAGE_VERSION=<la versión anterior, formato AAAA.MM>
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
 ```
 
