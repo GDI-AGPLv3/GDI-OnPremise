@@ -59,13 +59,38 @@ services:
       timeout: 5s
       retries: 5
 
+  # ---------- Runner de migraciones (corre y termina) ----------
+  # Aplica las migraciones SQL pendientes a la BD ANTES de que arranque el backend.
+  # Monta el runner + las migraciones de GDI-BD (un `git pull` las actualiza sin rebuild).
+  migrator:
+    build:
+      context: ./GDI-BD
+      dockerfile: Dockerfile.migrator
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
+      MIGRATIONS_DIR: /migrations
+    volumes:
+      - ./GDI-BD/tools/run_migrations.py:/app/run_migrations.py:ro
+      - ./GDI-BD/sql/migrations:/migrations:ro
+    networks: [gdi_net]
+
   # ---------- Microservicios (bundleados en GDI-Backend) ----------
   pdfcomposer:
     build: ./GDI-Backend/microservices/pdfcomposer
     restart: unless-stopped
     environment:
-      PDFCOMPOSER_API_KEY: ${PDFCOMPOSER_API_KEY}
+      # El servicio lee API_KEY (app/config.py); PDFCOMPOSER_API_KEY es el nombre en el .env.
+      API_KEY: ${PDFCOMPOSER_API_KEY}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # gunicorn_conf.py necesita estas tres. Sin PORT cae a :8000 y el backend
+      # (PDFCOMPOSER_URL) le habla al :8080: quedaria inalcanzable sin dar error.
+      PORT: "8080"
+      GUNICORN_WORKERS: ${PDFCOMPOSER_WORKERS:-2}
+      GUNICORN_TIMEOUT: ${PDFCOMPOSER_TIMEOUT:-120}
     networks: [gdi_net]
     # Sin puerto expuesto al host: solo lo usa el backend por la red interna (:8080)
 
@@ -73,8 +98,14 @@ services:
     build: ./GDI-Backend/microservices/notary
     restart: unless-stopped
     environment:
-      NOTARY_API_KEY: ${NOTARY_API_KEY}
+      # El servicio lee API_KEY (app/config.py); NOTARY_API_KEY es el nombre en el .env.
+      API_KEY: ${NOTARY_API_KEY}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # gunicorn_conf.py las exige con os.environ[...] (sin default): sin ellas
+      # el contenedor no arranca y no hay firma digital.
+      PORT: "8080"
+      GUNICORN_WORKERS: ${NOTARY_WORKERS:-4}
+      GUNICORN_TIMEOUT: ${NOTARY_TIMEOUT:-90}
       # Storage (Notary lee/escribe PDFs firmados en R2/MinIO)
       CF_R2_ENDPOINT: ${CF_R2_ENDPOINT}
       CF_R2_ACCESS_KEY_ID: ${CF_R2_ACCESS_KEY_ID}
@@ -90,6 +121,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     environment:
       # Modo (cierra /docs, /redoc, /openapi.json)
       ENVIRONMENT: production
@@ -104,7 +137,10 @@ services:
       # Auth0 (el backend valida el JWT)
       AUTH0_DOMAIN: ${AUTH0_DOMAIN}
       AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
-      AUTH0_ISSUERS: ${AUTH0_ISSUERS:-}
+      # Si el .env no la define, se deriva de AUTH0_DOMAIN. OJO: no dejarla vacia
+      # (${AUTH0_ISSUERS:-}) porque database.py usa os.getenv con default, y ese
+      # default aplica solo si la variable NO existe: vacia rompe el arranque.
+      AUTH0_ISSUERS: ${AUTH0_ISSUERS:-https://${AUTH0_DOMAIN}/}
       # CORS: orígenes permitidos (URL pública del frontend)
       FRONTEND_URL: ${FRONTEND_URL}
       # Microservicios internos (todos escuchan en :8080)
@@ -121,7 +157,9 @@ services:
       CF_R2_BUCKET_TOSIGN: ${CF_R2_BUCKET_TOSIGN}
       # Email (Resend si hay key; SMTP si hay host; si no, silencioso)
       RESEND_API_KEY: ${RESEND_API_KEY:-}
-      FROM_EMAIL: ${FROM_EMAIL:-GDI <noreply@localhost>}
+      # Sin default: 'noreply@localhost' no es un remitente valido para ningun
+      # servidor de correo real. Lo pone el municipio en su .env.
+      FROM_EMAIL: ${FROM_EMAIL:-}
       ALERT_TO_EMAIL: ${ALERT_TO_EMAIL:-}
       SMTP_HOST: ${SMTP_HOST:-}
       SMTP_PORT: ${SMTP_PORT:-587}
@@ -148,6 +186,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      migrator:
+        condition: service_completed_successfully
     environment:
       ENVIRONMENT: production
       DB_HOST: ${DB_HOST}
@@ -197,7 +237,11 @@ services:
     ports:
       - "80:80"     # HTTP (redirige a HTTPS)
       - "443:443"   # HTTPS (frontend + API)
-      - "81:81"     # Panel de administración de npm (cambiar password al primer login)
+      # Panel de administracion: SOLO en localhost. Expuesto a internet, cualquiera
+      # que llegue antes que el municipio completa el setup inicial y se queda con el
+      # proxy (un POST /api/users sin autenticar alcanza). Se accede por tunel SSH:
+      #   ssh -L 8181:localhost:81 usuario@servidor   ->  http://localhost:8181
+      - "127.0.0.1:81:81"
     volumes:
       - npm_data:/data
       - npm_letsencrypt:/etc/letsencrypt

@@ -34,6 +34,8 @@ y el técnico pudiendo loguearse al BackOffice.
 | `<AUTH0_AUDIENCE>` | Identifier inventado en Auth0 → APIs | https://gdi-api |
 | `<AUTH0_FRONTEND_CLIENT_ID/SECRET>` | App Auth0 "Frontend" | — |
 | `<AUTH0_BACKOFFICE_CLIENT_ID/SECRET>` | App Auth0 "BackOffice" | — |
+| `<AUTH0_M2M_CLIENT_ID/SECRET>` | App Auth0 "Machine to Machine" (Management API) — sin esto no se crean usuarios | — |
+| `<SMTP_*>` / `<RESEND_API_KEY>` | Servidor de correo del municipio (o Resend) | mail.tu-municipio.gob.ar |
 | `<OPENROUTER_API_KEY>` | openrouter.ai | sk-or-xxx |
 | `<DB_PASSWORD>`, `<MINIO_PASSWORD>` | inventadas, seguras | — |
 
@@ -51,10 +53,12 @@ CHECK: `docker compose version` imprime v2.x. Si no: FAILURES/F1.
 ### P2 — Clonar
 ```bash
 sudo mkdir -p /opt/gdi && sudo chown $USER /opt/gdi && cd /opt/gdi
-git clone https://github.com/GDI-APGLv3/GDI-OnPremise.git .
-git clone https://github.com/GDI-APGLv3/GDI-Backend.git
-git clone https://github.com/GDI-APGLv3/GDI-Frontend.git
-git clone https://github.com/GDI-APGLv3/GDI-BD.git
+VERSION=2026.09   # la version que te indico GDI (la misma para las 10 piezas)
+
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Backend.git
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Frontend.git
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-BD.git
 ```
 CHECK: existen `/opt/gdi/docker-compose.yml`, `/opt/gdi/GDI-Backend/microservices/pdfcomposer/`,
 `/opt/gdi/GDI-Backend/microservices/notary/`, `/opt/gdi/GDI-Frontend/Dockerfile`, `/opt/gdi/GDI-BD/Dockerfile.prd`.
@@ -65,8 +69,13 @@ Si falta `microservices/`: FAILURES/F2.
 2. Crear 2 Regular Web Applications:
    - Frontend → Callback `https://gdi.<BASE>/auth/callback`, Logout/Web Origins `https://gdi.<BASE>`.
    - BackOffice → Callback `https://admin.<BASE>/auth/callback`, Logout/Web Origins `https://admin.<BASE>`.
-3. Recolectar los 2 client_id + 2 client_secret.
-CHECK: tenés AUTH0_DOMAIN, AUDIENCE, y los 2 pares client_id/secret.
+3. Crear 1 Machine to Machine Application (OBLIGATORIA — sin esto el alta de
+   usuarios devuelve 502 "Sistema de autenticacion no disponible"):
+   - autorizarla contra la **Auth0 Management API** (la de fabrica, no la del punto 1);
+   - scopes minimos: `read:users`, `create:users`, `update:users`, `create:user_tickets`;
+   - su client_id/secret van a `AUTH0_M2M_CLIENT_ID` / `AUTH0_M2M_CLIENT_SECRET`.
+4. Recolectar los 2 client_id + 2 client_secret de login, y el par M2M.
+CHECK: tenés AUTH0_DOMAIN, AUDIENCE, los 2 pares client_id/secret y el par M2M.
 
 ### P4 — .env
 ```bash
@@ -77,6 +86,11 @@ Editar `.env` y setear (con los valores del usuario):
 DB_PASSWORD, AUTH0_DOMAIN, AUTH0_AUDIENCE,
 AUTH0_FRONTEND_CLIENT_ID, AUTH0_FRONTEND_CLIENT_SECRET,
 AUTH0_BACKOFFICE_CLIENT_ID, AUTH0_BACKOFFICE_CLIENT_SECRET,
+AUTH0_M2M_CLIENT_ID, AUTH0_M2M_CLIENT_SECRET,
+# Correo (opcional pero recomendado): SMTP propio del municipio.
+# Sin correo, el alta de usuarios devuelve activation_url y el BackOffice lo
+# muestra en pantalla (un solo uso, vence a los 5 dias).
+# SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, FROM_EMAIL  (o RESEND_API_KEY)
 FRONTEND_URL=https://gdi.<BASE>
 NEXT_PUBLIC_API_URL=https://api.<BASE>
 BACKOFFICE_URL=https://admin.<BASE>
@@ -112,7 +126,9 @@ CHECK (esperar 3-5 min en el primer build):
 Si algún servicio `restarting`: `docker compose logs <servicio>` → FAILURES/F4.
 
 ### P7 — Dominios + SSL (nginx-proxy-manager, UI en :81)
-1. Abrir `http://<IP_SERVER>:81`. Login `admin@example.com`/`changeme`. CAMBIAR credenciales de inmediato.
+1. El panel escucha SOLO en localhost. Tunel: `ssh -L 8181:localhost:81 user@server` -> `http://localhost:8181`.
+   NO existe usuario por defecto: la primera visita CREA el admin. Hacerlo de inmediato: hasta
+   entonces un `POST /api/users` sin autenticar se queda con el proxy.
 2. Crear 4 Proxy Hosts (Hosts → Proxy Hosts → Add):
    | Domain | Forward Hostname | Port |
    |--------|------------------|------|
@@ -138,7 +154,7 @@ muestra el asistente → completar datos → se crea schema + buckets + admin.
 ## FAILURES
 - F1 (docker compose no existe): instalar plugin `docker-compose-plugin` o re-loguear para tomar el grupo docker.
 - F2 (falta GDI-Backend/microservices/): el clone trajo el repo equivocado o incompleto. Re-clonar
-  `https://github.com/GDI-APGLv3/GDI-Backend.git`. NO se clonan repos pdfcomposer/notary separados.
+  `https://github.com/GDI-AGPLv3/GDI-Backend.git`. NO se clonan repos pdfcomposer/notary separados.
 - F3 (docker login falla): token vencido/incorrecto. Pedir token nuevo a GDI Latam.
 - F4 (servicio restarting): leer `docker compose logs <servicio>`. Causas típicas:
   - falta una env en `.env` → completarla.
@@ -148,7 +164,44 @@ muestra el asistente → completar datos → se crea schema + buckets + admin.
 
 ## OPERACIÓN
 - Estado: `docker compose ps`. Logs: `docker compose logs -f <servicio>`.
-- Update: `git -C GDI-Backend pull && git -C GDI-Frontend pull && git -C GDI-BD pull`; subir `IMAGE_VERSION`
-  en `.env`; `docker compose ... pull`; `docker compose ... up -d --build`.
-- Backup BD: `docker compose exec -T postgres pg_dump -U postgres railway -Fc > backup-$(date +%F).dump`.
-  Copiar el dump FUERA del servidor.
+
+### UPDATE — REGLA DURA: NUNCA actualizar sin backup previo
+Una update aplica migraciones IRREVERSIBLES. Bajar `IMAGE_VERSION` NO revierte el schema.
+Si el usuario pide actualizar y no hay backup del día, HACER EL BACKUP PRIMERO o NEGARSE.
+Nada es automático: el municipio decide cuándo. No programar updates ni sugerir cron de update.
+
+```bash
+# 0. BACKUP COMPLETO (ver abajo) y verificar tamaños con `ls -lh`
+nano .env    # IMAGE_VERSION=<version nueva que indico GDI, formato AAAA.MM>
+# 7 de los 10 servicios se compilan local: sin git pull + --build no se actualizan.
+VERSION=2026.09   # la version nueva (la misma que IMAGE_VERSION)
+# Estas parado en una version, no en una rama: se cambia de version, no se hace pull.
+for r in . GDI-Backend GDI-Frontend GDI-BD; do git -C "$r" fetch --tags origin && git -C "$r" checkout "v$VERSION"; done
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml pull
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
+docker compose ps && docker compose logs --tail=50 backend
+```
+Rollback = DOS cosas: bajar `IMAGE_VERSION` **y** restaurar el dump. Solo lo primero deja el
+schema migrado contra código viejo (sistema roto).
+
+### DOS LLAVES DISTINTAS — no confundirlas al diagnosticar
+- Token `ghcr.io` → controla si BAJAN las imágenes (`pull`). Falla = `denied`/`unauthorized`.
+  También es lo que permite REINSTALAR: sin token activo no se baja ni la versión ya usada.
+- Archivo `.lic` → controla si FUNCIONAN BackOffice e IA (al arrancar y cada 6 h). El núcleo
+  (expedientes, documentos, firma) no se corta nunca por licencia.
+
+### BACKUP — cinco cosas, no una
+`gdi_postgres_data` (BD) · `gdi_minio_data` (documentos, solo si MinIO) · `.env` · `license/*.lic` ·
+imágenes Docker (`docker save`, para poder reinstalar sin token).
+
+```bash
+mkdir -p backups && FECHA=$(date +%F)
+docker compose exec -T postgres pg_dump -U postgres railway -Fc > backups/gdi-$FECHA.dump
+docker run --rm -v gdi_minio_data:/data -v /opt/gdi/backups:/backup alpine   tar czf /backup/minio-$FECHA.tar.gz -C /data .
+tar czf backups/config-$FECHA.tar.gz .env license/
+# solo al actualizar, no a diario:
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml   images | awk 'NR>1 {print $2":"$3}' | sort -u > backups/imagenes-$FECHA.txt
+docker save $(cat backups/imagenes-$FECHA.txt) | gzip > backups/imagenes-$FECHA.tar.gz
+```
+Verificar con `ls -lh backups/`: un dump de pocos KB NO es un backup. Copiar FUERA del servidor.
+`.env` y `.lic` contienen secretos: tratarlos como contraseñas.
