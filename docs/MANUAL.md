@@ -66,14 +66,27 @@ docker --version && docker compose version
 
 Los repos van todos en la misma carpeta:
 
+**Todo GDI se instala en una versión, y es una sola para las 10 piezas.** Te la indica
+GDI en el mail de entrega, con el formato `AAAA.MM`. La misma que después va en
+`IMAGE_VERSION` (paso 5).
+
 ```bash
 sudo mkdir -p /opt/gdi && sudo chown $USER /opt/gdi && cd /opt/gdi
 
-git clone https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
-git clone https://github.com/GDI-AGPLv3/GDI-Backend.git
-git clone https://github.com/GDI-AGPLv3/GDI-Frontend.git
-git clone https://github.com/GDI-AGPLv3/GDI-BD.git
+# La versión que te indicó GDI. Cambiala por la tuya:
+VERSION=2026.09
+
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Backend.git
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Frontend.git
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-BD.git
 ```
+
+> ⚠️ **No clones sin `--branch`.** Sin la versión te traés la rama principal, que es
+> "lo último publicado" y puede no coincidir con las imágenes del paso 7: tendrías un
+> backend de una versión hablándole a módulos de otra. Si el clone falla con
+> `Remote branch not found`, esa versión todavía no se publicó: avisale a GDI antes
+> de seguir, no lo destrabes sacando el `--branch`.
 
 > Los microservicios (pdfcomposer, notary) vienen **dentro de GDI-Backend** (`microservices/`). No se clonan aparte.
 > El BackOffice y AgenteLANG NO se clonan: vienen como imágenes pre-armadas desde `ghcr.io` (paso 7).
@@ -361,12 +374,17 @@ sin que nadie lo haya decidido.
 ```bash
 cd /opt/gdi
 
-# 1. La versión nueva (la que dice el mail de GDI)
-nano .env                      # IMAGE_VERSION=2026.09  (formato AAAA.MM)
+# 1. La versión nueva (la que dice el mail de GDI). Es UNA sola para las 10 piezas.
+VERSION=2026.09
+nano .env                      # IMAGE_VERSION=2026.09  (el mismo número)
 
 # 2. Traer el código nuevo de los servicios que se compilan en tu servidor
-#    (backend, gateway, frontend, base de datos y los microservicios)
-for r in . GDI-Backend GDI-Frontend GDI-BD; do git -C "$r" pull --ff-only; done
+#    (backend, gateway, frontend, base de datos y los microservicios).
+#    Estás parado en una versión, no en una rama: se cambia de versión, no se hace pull.
+for r in . GDI-Backend GDI-Frontend GDI-BD; do
+  git -C "$r" fetch --tags origin && git -C "$r" checkout "v$VERSION" || {
+    echo "ERROR: la version v$VERSION no existe en $r. NO sigas: avisale a GDI."; break; }
+done
 
 # 3. Bajar las imágenes nuevas de los módulos Premium
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml pull

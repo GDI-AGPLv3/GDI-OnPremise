@@ -16,10 +16,12 @@ Los 4 repos van en la misma carpeta:
 
 ```bash
 mkdir /opt/gdi && cd /opt/gdi
-git clone https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
-git clone https://github.com/GDI-AGPLv3/GDI-Backend.git
-git clone https://github.com/GDI-AGPLv3/GDI-Frontend.git
-git clone https://github.com/GDI-AGPLv3/GDI-BD.git
+VERSION=2026.09   # la version que te indico GDI (la misma para las 10 piezas)
+
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Backend.git
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Frontend.git
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-BD.git
 ```
 
 > Los microservicios (pdfcomposer, notary) vienen **dentro de GDI-Backend** (`microservices/`), no se clonan aparte.
@@ -88,7 +90,9 @@ la corrés vos, en la ventana que elijas.
 
 ```bash
 nano .env    # IMAGE_VERSION=<la versión nueva, formato AAAA.MM>
-for r in . GDI-Backend GDI-Frontend GDI-BD; do git -C "$r" pull --ff-only; done
+VERSION=2026.09   # la version nueva (la misma que IMAGE_VERSION)
+# Estas parado en una version, no en una rama: se cambia de version, no se hace pull.
+for r in . GDI-Backend GDI-Frontend GDI-BD; do git -C "$r" fetch --tags origin && git -C "$r" checkout "v$VERSION"; done
 docker compose -f docker-compose.yml -f docker-compose.premium.yml pull
 docker compose -f docker-compose.yml -f docker-compose.premium.yml up -d --build
 ```

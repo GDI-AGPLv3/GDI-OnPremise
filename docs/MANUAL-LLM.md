@@ -53,10 +53,12 @@ CHECK: `docker compose version` imprime v2.x. Si no: FAILURES/F1.
 ### P2 — Clonar
 ```bash
 sudo mkdir -p /opt/gdi && sudo chown $USER /opt/gdi && cd /opt/gdi
-git clone https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
-git clone https://github.com/GDI-AGPLv3/GDI-Backend.git
-git clone https://github.com/GDI-AGPLv3/GDI-Frontend.git
-git clone https://github.com/GDI-AGPLv3/GDI-BD.git
+VERSION=2026.09   # la version que te indico GDI (la misma para las 10 piezas)
+
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Backend.git
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Frontend.git
+git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-BD.git
 ```
 CHECK: existen `/opt/gdi/docker-compose.yml`, `/opt/gdi/GDI-Backend/microservices/pdfcomposer/`,
 `/opt/gdi/GDI-Backend/microservices/notary/`, `/opt/gdi/GDI-Frontend/Dockerfile`, `/opt/gdi/GDI-BD/Dockerfile.prd`.
@@ -172,7 +174,9 @@ Nada es automático: el municipio decide cuándo. No programar updates ni sugeri
 # 0. BACKUP COMPLETO (ver abajo) y verificar tamaños con `ls -lh`
 nano .env    # IMAGE_VERSION=<version nueva que indico GDI, formato AAAA.MM>
 # 7 de los 10 servicios se compilan local: sin git pull + --build no se actualizan.
-for r in . GDI-Backend GDI-Frontend GDI-BD; do git -C "$r" pull --ff-only; done
+VERSION=2026.09   # la version nueva (la misma que IMAGE_VERSION)
+# Estas parado en una version, no en una rama: se cambia de version, no se hace pull.
+for r in . GDI-Backend GDI-Frontend GDI-BD; do git -C "$r" fetch --tags origin && git -C "$r" checkout "v$VERSION"; done
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml pull
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
 docker compose ps && docker compose logs --tail=50 backend
