@@ -1,0 +1,62 @@
+name: Verificar variables del compose
+
+# Capa 1 y 2 de la prevencion (la 3, el smoke de instalacion completo, es GDI-XXX).
+#
+# El compose de este repo es una copia a mano de la configuracion que vive en los
+# fly.*.toml de cada servicio. Cuando el codigo suma una variable, en Fly sigue
+# andando y solo se rompe en el servidor de un municipio, meses despues. Esto lo
+# detecta el mismo dia.
+#
+# Se clona de GDI-AGPLv3 a proposito: es de donde clona el municipio. Si el chequeo
+# falla porque el publico esta atrasado, eso tambien es un problema que hay que ver.
+
+on:
+  # Por ahora SOLO a mano. Motivo: el repo publico (GDI-AGPLv3) esta atrasado y le
+  # falta GDI-BD/Dockerfile.prd, asi que en automatico quedaria en rojo permanente
+  # por una razon ajena al chequeo — y un CI cronicamente rojo se ignora, que es
+  # justo lo que mata a este tipo de herramienta.
+  #
+  # Al republicar el open-core, descomentar el push/pull_request de abajo.
+  workflow_dispatch:
+  # push:
+  #   branches: [dev, hml, prd]
+  # pull_request:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install --quiet pyyaml
+
+      - name: Clonar los repos que el compose compila
+        run: |
+          for r in GDI-Backend GDI-Frontend GDI-BD; do
+            git clone --quiet --depth 1 "https://github.com/GDI-AGPLv3/$r.git" "$r"
+          done
+
+      # Capa 1: el compose le pasa a cada servicio lo que su codigo exige.
+      # Falla el job si falta algo que rompe el arranque, y tambien si algun
+      # servicio no se pudo verificar (un verde parcial no sirve de nada).
+      - name: Variables que cada servicio exige
+        run: |
+          python scripts/verificar-env.py --repos . \
+            -f docker-compose.yml \
+            -f docker-compose.premium.yml \
+            -f docker-compose.minio.yml
+
+      # Capa 2: os.environ["X"] sin default en un servicio que se distribuye es
+      # un crash duro en casa del municipio. Se reporta, todavia sin romper el
+      # job: el codigo vive en otros repos y hay deuda previa que limpiar.
+      - name: Variables sin default (aviso)
+        continue-on-error: true
+        run: |
+          python scripts/verificar-env.py --repos . --estricto \
+            -f docker-compose.yml \
+            -f docker-compose.premium.yml \
+            -f docker-compose.minio.yml

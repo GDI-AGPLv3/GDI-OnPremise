@@ -34,6 +34,32 @@ services:
     # :9000 (API S3) y :9001 (consola web) quedan SOLO en la red interna.
     # Si querés ver la consola, exponé 9001 temporalmente o accedé por npm.
 
-  # NOTA: no se precrean buckets fijos. Cada instancia (municipio) crea sus propios
-  # buckets per-tenant (gdi-<sigla>-oficial / -tosign) cuando se la da de alta desde
-  # el wizard del BackOffice. MinIO arranca vacío y se va poblando solo.
+  # Los buckets de DOCUMENTOS no se precrean: cada municipio crea los suyos
+  # (gdi-<sigla>-oficial / -tosign / -publico / -preoficial) cuando se lo da de alta
+  # desde el wizard del BackOffice.
+  #
+  # El de AVATARES es distinto: es UNO SOLO para toda la instalación, con una carpeta
+  # por municipio adentro ({schema}/{uuid}.webp). Como no pertenece a ningún municipio,
+  # el wizard no lo crea nunca — en la nube existe desde siempre, hecho a mano. Este
+  # servicio lo crea al levantar, para que subir una foto de perfil no falle con
+  # "Bucket de avatares no configurado".
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?definí MINIO_ROOT_PASSWORD en el .env}
+      BUCKET_AVATARS: ${CF_R2_BUCKET_AVATARS:-gdi-avatars}
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" &&
+      mc mb --ignore-existing \"local/$$BUCKET_AVATARS\" &&
+      mc anonymous set download \"local/$$BUCKET_AVATARS\" &&
+      echo '[OK] bucket de avatares listo: '$$BUCKET_AVATARS
+      "
+    restart: "no"
+    networks: [gdi_net]
+    # Lectura anónima SOLO en este bucket: las fotos de perfil las pide el navegador
+    # del usuario por HTTP. Los documentos NO se tocan: siguen privados.

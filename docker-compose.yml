@@ -155,6 +155,10 @@ services:
       CF_R2_SECRET_ACCESS_KEY: ${CF_R2_SECRET_ACCESS_KEY}
       CF_R2_BUCKET_OFICIAL: ${CF_R2_BUCKET_OFICIAL}
       CF_R2_BUCKET_TOSIGN: ${CF_R2_BUCKET_TOSIGN}
+      # Avatares: bucket global (no per-tenant) + la URL desde donde el navegador
+      # los pide. Los sirve el reverse proxy en /avatars del dominio de la API.
+      CF_R2_BUCKET_AVATARS: ${CF_R2_BUCKET_AVATARS:-gdi-avatars}
+      CF_R2_AVATARS_PUBLIC_URL: ${CF_R2_AVATARS_PUBLIC_URL:-${NEXT_PUBLIC_API_URL}/avatars}
       # Email (Resend si hay key; SMTP si hay host; si no, silencioso)
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       # Sin default: 'noreply@localhost' no es un remitente valido para ningun
@@ -199,6 +203,30 @@ services:
       AUTH0_AUDIENCE: ${AUTH0_AUDIENCE}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
       AGENT_GATEWAY_SECRET: ${AGENT_GATEWAY_SECRET:-${INTERNAL_API_KEY}}
+      # Lo de abajo sale del fly.gateway.toml, que no se publica. Sin esto el
+      # gateway arranca y responde healthy, pero le falta a donde llamar: los
+      # modulos de firma y PDF hacen raise al importarse sin estas URLs.
+      AUTH0_ISSUERS: ${AUTH0_ISSUERS:-https://${AUTH0_DOMAIN}/}
+      PDFCOMPOSER_URL: http://pdfcomposer:8080
+      PDFCOMPOSER_API_KEY: ${PDFCOMPOSER_API_KEY}
+      NOTARY_URL: http://notary:8080
+      NOTARY_API_KEY: ${NOTARY_API_KEY}
+      # URL publica del propio gateway: es el audience que valida el MCP.
+      MCP_RESOURCE_URI: ${GATEWAY_URL}
+      FRONTEND_URL: ${FRONTEND_URL}
+      TESTING_MODE: "false"
+      CF_R2_SIGN_EXPIRATION: ${CF_R2_SIGN_EXPIRATION:-600}
+      GUNICORN_WORKERS: ${GATEWAY_WORKERS:-2}
+      ASYNCPG_MIN_SIZE: ${ASYNCPG_MIN_SIZE:-2}
+      ASYNCPG_MAX_SIZE: ${ASYNCPG_MAX_SIZE:-8}
+      TZ: ${TZ:-America/Argentina/Buenos_Aires}
+      PYTHONUNBUFFERED: "1"
+      # Avatares: bucket global (no per-tenant) + la URL desde donde el navegador
+      # los pide. Los sirve el reverse proxy en /avatars del dominio de la API.
+      CF_R2_BUCKET_AVATARS: ${CF_R2_BUCKET_AVATARS:-gdi-avatars}
+      CF_R2_AVATARS_PUBLIC_URL: ${CF_R2_AVATARS_PUBLIC_URL:-${NEXT_PUBLIC_API_URL}/avatars}
+      # EMAIL_SERVICE_URL no va: on-premise el correo lo manda el BackOffice,
+      # no hay microservicio de email separado como en la nube.
     networks: [gdi_net]
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/.well-known/mcp.json').status==200 else 1)\""]

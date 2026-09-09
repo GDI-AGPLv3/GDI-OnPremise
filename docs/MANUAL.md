@@ -42,11 +42,12 @@ Guardá los dos en un lugar seguro. Los vas a usar en los pasos 6 y 7.
 | Disco | 80 GB |
 | Red | Un **dominio** apuntando al servidor (HTTPS es obligatorio — Auth0 lo exige) |
 
-Vas a necesitar 4 subdominios apuntando a la IP del servidor (registros DNS tipo A):
+Vas a necesitar 5 subdominios apuntando a la IP del servidor (registros DNS tipo A):
 - `gdi.tu-municipio.gob.ar` — portal de usuarios (frontend)
 - `api.tu-municipio.gob.ar` — API del backend
 - `admin.tu-municipio.gob.ar` — BackOffice (administración)
 - `admin-api.tu-municipio.gob.ar` — API del BackOffice
+- `mcp.tu-municipio.gob.ar` — gateway MCP (para conectar asistentes de IA)
 
 ---
 
@@ -308,7 +309,7 @@ El reverse proxy (nginx-proxy-manager) tiene una interfaz web. **No hace falta t
    - ⚠️ **Hacelo apenas levantes el sistema, no lo dejes para después.** Hasta que ese
      usuario exista, cualquiera que alcance el panel puede crearlo y quedarse con el
      proxy — y con él, con el control de a dónde apunta cada dominio.
-3. Para cada uno de los 4 dominios, creá un **Proxy Host** (pestaña Hosts → Proxy Hosts → Add Proxy Host):
+3. Para cada uno de los 5 dominios, creá un **Proxy Host** (pestaña Hosts → Proxy Hosts → Add Proxy Host):
 
 | Domain Name | Forward Hostname | Forward Port |
 |-------------|------------------|--------------|
@@ -316,13 +317,38 @@ El reverse proxy (nginx-proxy-manager) tiene una interfaz web. **No hace falta t
 | api.tu-municipio.gob.ar | `backend` | 8080 |
 | admin.tu-municipio.gob.ar | `backoffice-front` | 3000 |
 | admin-api.tu-municipio.gob.ar | `backoffice-back` | 8080 |
+| mcp.tu-municipio.gob.ar | `gateway` | 8080 |
 
 > ℹ️ **Si más adelante cambiás alguno de los 4 dominios**, no alcanza con reiniciar:
 > el portal lleva la dirección de la API incrustada desde que se compiló. Hay que
 > actualizar el `.env` y recompilarlo:
 > `docker compose ... up -d --build frontend`
 
-4. En cada Proxy Host, pestaña **SSL** → "Request a new SSL Certificate" → tildá "Force SSL" y "HTTP/2 Support" → Save. (Let's Encrypt emite el certificado solo.)
+4. En el Proxy Host de **`api.tu-municipio.gob.ar`**, pestaña **Custom locations**,
+   agregá una entrada. Es la que sirve las **fotos de perfil**: las pide el navegador
+   del usuario, así que necesitan una dirección pública. Sin esto, cargar una foto
+   falla con *"Bucket de avatares no configurado"*.
+
+   | Campo | Valor |
+   |-------|-------|
+   | Location | `/avatars` |
+   | Forward Hostname | `minio` |
+   | Forward Port | `9000` |
+
+   Y en el engranaje de esa location, pegá esta línea para que apunte al bucket:
+
+   ```
+   rewrite ^/avatars/(.*)$ /gdi-avatars/$1 break;
+   ```
+
+   > ⚠️ Tiene que ser `rewrite`, **no** `proxy_pass`. El panel ya genera su propio
+   > `proxy_pass`; si agregás otro, nginx no puede levantar la configuración y
+   > **te quedás sin la API entera**, no solo sin los avatares.
+
+   > Solo se publica ese bucket, que el sistema crea con lectura pública al levantar.
+   > **Los documentos siguen privados**: MinIO no queda expuesto.
+
+5. En cada Proxy Host, pestaña **SSL** → "Request a new SSL Certificate" → tildá "Force SSL" y "HTTP/2 Support" → Save. (Let's Encrypt emite el certificado solo.)
 
 ---
 
