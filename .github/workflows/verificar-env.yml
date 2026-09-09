@@ -11,10 +11,16 @@ name: Verificar variables del compose
 # falla porque el publico esta atrasado, eso tambien es un problema que hay que ver.
 
 on:
-  push:
-    branches: [dev, hml, prd]
-  pull_request:
+  # Por ahora SOLO a mano. Motivo: el repo publico (GDI-AGPLv3) esta atrasado y le
+  # falta GDI-BD/Dockerfile.prd, asi que en automatico quedaria en rojo permanente
+  # por una razon ajena al chequeo — y un CI cronicamente rojo se ignora, que es
+  # justo lo que mata a este tipo de herramienta.
+  #
+  # Al republicar el open-core, descomentar el push/pull_request de abajo.
   workflow_dispatch:
+  # push:
+  #   branches: [dev, hml, prd]
+  # pull_request:
 
 jobs:
   verificar:
