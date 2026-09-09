@@ -155,6 +155,10 @@ services:
       CF_R2_SECRET_ACCESS_KEY: ${CF_R2_SECRET_ACCESS_KEY}
       CF_R2_BUCKET_OFICIAL: ${CF_R2_BUCKET_OFICIAL}
       CF_R2_BUCKET_TOSIGN: ${CF_R2_BUCKET_TOSIGN}
+      # Avatares: bucket global (no per-tenant) + la URL desde donde el navegador
+      # los pide. Los sirve el reverse proxy en /avatars del dominio de la API.
+      CF_R2_BUCKET_AVATARS: ${CF_R2_BUCKET_AVATARS:-gdi-avatars}
+      CF_R2_AVATARS_PUBLIC_URL: ${CF_R2_AVATARS_PUBLIC_URL:-${NEXT_PUBLIC_API_URL}/avatars}
       # Email (Resend si hay key; SMTP si hay host; si no, silencioso)
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       # Sin default: 'noreply@localhost' no es un remitente valido para ningun
@@ -217,6 +221,10 @@ services:
       ASYNCPG_MAX_SIZE: ${ASYNCPG_MAX_SIZE:-8}
       TZ: ${TZ:-America/Argentina/Buenos_Aires}
       PYTHONUNBUFFERED: "1"
+      # Avatares: bucket global (no per-tenant) + la URL desde donde el navegador
+      # los pide. Los sirve el reverse proxy en /avatars del dominio de la API.
+      CF_R2_BUCKET_AVATARS: ${CF_R2_BUCKET_AVATARS:-gdi-avatars}
+      CF_R2_AVATARS_PUBLIC_URL: ${CF_R2_AVATARS_PUBLIC_URL:-${NEXT_PUBLIC_API_URL}/avatars}
       # EMAIL_SERVICE_URL no va: on-premise el correo lo manda el BackOffice,
       # no hay microservicio de email separado como en la nube.
     networks: [gdi_net]

@@ -324,7 +324,31 @@ El reverse proxy (nginx-proxy-manager) tiene una interfaz web. **No hace falta t
 > actualizar el `.env` y recompilarlo:
 > `docker compose ... up -d --build frontend`
 
-4. En cada Proxy Host, pestaña **SSL** → "Request a new SSL Certificate" → tildá "Force SSL" y "HTTP/2 Support" → Save. (Let's Encrypt emite el certificado solo.)
+4. En el Proxy Host de **`api.tu-municipio.gob.ar`**, pestaña **Custom locations**,
+   agregá una entrada. Es la que sirve las **fotos de perfil**: las pide el navegador
+   del usuario, así que necesitan una dirección pública. Sin esto, cargar una foto
+   falla con *"Bucket de avatares no configurado"*.
+
+   | Campo | Valor |
+   |-------|-------|
+   | Location | `/avatars` |
+   | Forward Hostname | `minio` |
+   | Forward Port | `9000` |
+
+   Y en el engranaje de esa location, pegá esta línea para que apunte al bucket:
+
+   ```
+   rewrite ^/avatars/(.*)$ /gdi-avatars/$1 break;
+   ```
+
+   > ⚠️ Tiene que ser `rewrite`, **no** `proxy_pass`. El panel ya genera su propio
+   > `proxy_pass`; si agregás otro, nginx no puede levantar la configuración y
+   > **te quedás sin la API entera**, no solo sin los avatares.
+
+   > Solo se publica ese bucket, que el sistema crea con lectura pública al levantar.
+   > **Los documentos siguen privados**: MinIO no queda expuesto.
+
+5. En cada Proxy Host, pestaña **SSL** → "Request a new SSL Certificate" → tildá "Force SSL" y "HTTP/2 Support" → Save. (Let's Encrypt emite el certificado solo.)
 
 ---
 
