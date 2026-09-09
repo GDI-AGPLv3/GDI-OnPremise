@@ -16,6 +16,12 @@ services:
       # CORS: frontend de usuarios + backoffice (lista separada por coma, el código la soporta)
       FRONTEND_URL: ${FRONTEND_URL},${BACKOFFICE_URL}
 
+  # El gateway (MCP) tambien habla con AgenteLANG. Va aca y no en el compose base
+  # porque agentelang es un modulo pago: en el tier libre ese servicio no existe.
+  gateway:
+    environment:
+      AGENT_URL: http://agentelang:8080
+
   # ---------- BackOffice Back (administración) ----------
   backoffice-back:
     image: ghcr.io/gdi-live/backoffice-back:${IMAGE_VERSION}

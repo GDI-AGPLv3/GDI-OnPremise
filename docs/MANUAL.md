@@ -42,11 +42,12 @@ Guardá los dos en un lugar seguro. Los vas a usar en los pasos 6 y 7.
 | Disco | 80 GB |
 | Red | Un **dominio** apuntando al servidor (HTTPS es obligatorio — Auth0 lo exige) |
 
-Vas a necesitar 4 subdominios apuntando a la IP del servidor (registros DNS tipo A):
+Vas a necesitar 5 subdominios apuntando a la IP del servidor (registros DNS tipo A):
 - `gdi.tu-municipio.gob.ar` — portal de usuarios (frontend)
 - `api.tu-municipio.gob.ar` — API del backend
 - `admin.tu-municipio.gob.ar` — BackOffice (administración)
 - `admin-api.tu-municipio.gob.ar` — API del BackOffice
+- `mcp.tu-municipio.gob.ar` — gateway MCP (para conectar asistentes de IA)
 
 ---
 
@@ -308,7 +309,7 @@ El reverse proxy (nginx-proxy-manager) tiene una interfaz web. **No hace falta t
    - ⚠️ **Hacelo apenas levantes el sistema, no lo dejes para después.** Hasta que ese
      usuario exista, cualquiera que alcance el panel puede crearlo y quedarse con el
      proxy — y con él, con el control de a dónde apunta cada dominio.
-3. Para cada uno de los 4 dominios, creá un **Proxy Host** (pestaña Hosts → Proxy Hosts → Add Proxy Host):
+3. Para cada uno de los 5 dominios, creá un **Proxy Host** (pestaña Hosts → Proxy Hosts → Add Proxy Host):
 
 | Domain Name | Forward Hostname | Forward Port |
 |-------------|------------------|--------------|
@@ -316,6 +317,7 @@ El reverse proxy (nginx-proxy-manager) tiene una interfaz web. **No hace falta t
 | api.tu-municipio.gob.ar | `backend` | 8080 |
 | admin.tu-municipio.gob.ar | `backoffice-front` | 3000 |
 | admin-api.tu-municipio.gob.ar | `backoffice-back` | 8080 |
+| mcp.tu-municipio.gob.ar | `gateway` | 8080 |
 
 > ℹ️ **Si más adelante cambiás alguno de los 4 dominios**, no alcanza con reiniciar:
 > el portal lleva la dirección de la API incrustada desde que se compiló. Hay que
