@@ -12,11 +12,10 @@ Este manual describe el flujo Premium completo. Algunas automatizaciones están 
 - 🚧 Verificación automática de licencia `.lic`
 - 🚧 Wizard visual "crear instancia" en el BackOffice
 - 🚧 Runner de migraciones de BD al arranque
-- 🚧 Runner de migraciones: hoy el esquema queda en el estado del instalador inicial.
-- ℹ️ La instalación es **híbrida y así funciona**: 7 servicios se compilan en tu servidor
-  (backend, gateway, portal, base de datos y los 2 microservicios) y 3 bajan como imagen
-  desde el registro de GDI (BackOffice, BackOffice-Front y AgenteLANG). Los pasos 3, 7 y 11
-  reflejan esa realidad: por eso actualizar necesita `git pull` **y** `--build`, no solo `pull`.
+- 🚧 **Los pasos 3 y 7 todavía compilan 7 de los 10 servicios en tu servidor** (backend, gateway,
+  portal, base de datos y los 2 microservicios). En la versión definitiva los 10 bajan como
+  imagen desde el registro de GDI y **no se compila nada**; los pasos 3, 7 y 11 se reescriben
+  entonces. Mientras tanto, actualizar necesita traer el código **y** recompilar (paso 11).
 
 Donde veas 🚧, el paso final puede requerir asistencia de GDI Latam por ahora.
 
