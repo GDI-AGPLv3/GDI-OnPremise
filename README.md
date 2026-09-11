@@ -1,40 +1,40 @@
 # GDI OnPremise
 
-Despliegue auto-alojado de **GDI Latam** — la plataforma de Gestión Documental Inteligente para gobiernos — con `docker-compose`. Pensado para que un municipio corra GDI en su propio servidor, con sus datos sin salir de su infraestructura.
+Instalador de **GDI Latam** — la plataforma de Gestión Documental Inteligente para gobiernos —
+para correrla en el servidor del municipio, con los datos sin salir de su infraestructura.
 
-## Tiers
-
-| | Tier Libre | Tier Premium |
-|---|---|---|
-| Licencia | AGPL (open source) | Comercial (archivo `.lic`) |
-| Cómo se obtiene | `git clone` + build local | Imágenes en `ghcr.io` (token de GDI) |
-| Instancias (tenants) | 1 | 2 (producción + pruebas) |
-| Módulos | Backend, Frontend, BD, firma, PDFs | + BackOffice (administración) + AgenteLANG (IA) |
-| Almacenamiento | MinIO local o Cloudflare R2 | igual |
+> **Requiere licencia de GDI Latam.** Este repo es la *receta* (compose + manual) y es público
+> para que se pueda auditar antes de contratar. Los *ingredientes* no: las imágenes de los 10
+> servicios se bajan de `ghcr.io` con un token que entrega GDI Latam, y el archivo de licencia
+> `.lic` habilita el BackOffice y la IA. Sin token no baja nada; sin licencia no se puede crear
+> el municipio.
 
 ## Qué hay en este repo
 
-Solo la **receta** de despliegue (no el código de la aplicación):
-
-- `docker-compose.yml` — tier libre (buildea todo localmente).
-- `docker-compose.premium.yml` — overlay con los módulos pagos (imágenes de ghcr.io).
-- `docker-compose.minio.yml` — overlay de almacenamiento local con MinIO.
+- `docker-compose.yml` — el núcleo: base de datos, migraciones, backend, gateway MCP, portal,
+  PDFs, firma y reverse proxy.
+- `docker-compose.premium.yml` — BackOffice (administración) y AgenteLANG (IA).
+- `docker-compose.minio.yml` — almacenamiento local con MinIO (alternativa a Cloudflare R2).
 - `.env.example` — plantilla de configuración.
 - `scripts/generar-claves.sh` — genera las claves internas.
-- `INSTALL.md` — guía rápida de instalación.
+- `INSTALL.md` — guía rápida.
 
-El código de la aplicación vive en los repos que se clonan al lado: `GDI-Backend`, `GDI-Frontend`, `GDI-BD`.
+En el servidor **no se compila nada**: todos los servicios son imágenes con una misma versión
+(`IMAGE_VERSION`, formato `AAAA.MM.N`).
 
 ## Instalación
 
-- **[docs/MANUAL.md](docs/MANUAL.md)** — manual completo paso a paso (tier Premium), para el técnico del municipio.
+- **[docs/MANUAL.md](docs/MANUAL.md)** — manual completo paso a paso, para el técnico del municipio.
 - **[docs/MANUAL-LLM.md](docs/MANUAL-LLM.md)** — el mismo manual optimizado para que un asistente de IA te guíe o ejecute los pasos.
 - **[INSTALL.md](INSTALL.md)** — guía rápida resumida.
 
-## Seguridad del modelo
+## Código fuente
 
-El `docker-compose` es público a propósito: no contiene secretos. La protección del tier pago está en (1) las imágenes privadas de `ghcr.io` (requieren token) y (2) el archivo de licencia `.lic`. Sin licencia válida, los módulos premium no funcionan.
+GDI es software libre (AGPL-3.0). El código fuente correspondiente a la versión que tengas
+instalada se entrega a pedido. La versión comunitaria se publica en
+[GDI-AGPLv3](https://github.com/GDI-AGPLv3).
 
 ## Licencia
 
-El contenido de este repositorio se distribuye bajo **AGPL-3.0**. Los módulos del tier Premium están sujetos a licencia comercial de GDI Latam.
+El contenido de este repositorio se distribuye bajo **AGPL-3.0**. El BackOffice y AgenteLANG
+están sujetos a la licencia comercial de GDI Latam.

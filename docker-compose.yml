@@ -1,15 +1,12 @@
 # ============================================================
-# GDI OnPremise — Tier Libre (AGPL)
-# Todos los servicios se buildean localmente desde el código fuente.
+# GDI OnPremise — Núcleo de GDI
+# Instalación por imágenes: los 10 servicios de GDI se bajan ya armados desde
+# ghcr.io/gdi-live (requiere el token que entrega GDI Latam). En el servidor NO se
+# compila nada ni se clona código de la aplicación.
 #
-# El municipio clona en la misma carpeta:
-#   - GDI-OnPremise  (este repo, con el compose)
-#   - GDI-Backend    (backend + gateway + microservicios bundleados)
-#   - GDI-Frontend
-#   - GDI-BD         (postgres + scripts de init)
-#
-# Arranque: docker compose up -d
-# Con MinIO local:  docker compose -f docker-compose.yml -f docker-compose.minio.yml up -d
+# IMAGE_VERSION (en el .env) es UNA sola versión para todo el set.
+# Se usa junto con el overlay premium (BackOffice + IA) y, si corresponde, MinIO:
+#   docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
 # ============================================================
 
 name: gdi
@@ -27,9 +24,8 @@ volumes:
 services:
   # ---------- Base de datos ----------
   postgres:
-    build:
-      context: ./GDI-BD
-      dockerfile: Dockerfile.prd   # SIN seed demo: crea public + catálogos globales, sin el tenant 100_test
+    image: ghcr.io/gdi-live/postgres:${IMAGE_VERSION:?definí IMAGE_VERSION en el .env}
+    # SIN seed demo: crea public + catálogos globales, sin el tenant 100_test
 
     restart: unless-stopped
     environment:
@@ -61,11 +57,9 @@ services:
 
   # ---------- Runner de migraciones (corre y termina) ----------
   # Aplica las migraciones SQL pendientes a la BD ANTES de que arranque el backend.
-  # Monta el runner + las migraciones de GDI-BD (un `git pull` las actualiza sin rebuild).
+  # El runner y las migraciones vienen DENTRO de la imagen: cambiar IMAGE_VERSION trae las nuevas.
   migrator:
-    build:
-      context: ./GDI-BD
-      dockerfile: Dockerfile.migrator
+    image: ghcr.io/gdi-live/migrator:${IMAGE_VERSION:?definí IMAGE_VERSION en el .env}
     restart: "no"
     depends_on:
       postgres:
@@ -73,14 +67,11 @@ services:
     environment:
       DATABASE_URL: postgresql://${DB_USER}:${DB_PASSWORD}@${DB_HOST}:${DB_PORT}/${DB_NAME}
       MIGRATIONS_DIR: /migrations
-    volumes:
-      - ./GDI-BD/tools/run_migrations.py:/app/run_migrations.py:ro
-      - ./GDI-BD/sql/migrations:/migrations:ro
     networks: [gdi_net]
 
-  # ---------- Microservicios (bundleados en GDI-Backend) ----------
+  # ---------- Microservicios internos (PDFs y firma) ----------
   pdfcomposer:
-    build: ./GDI-Backend/microservices/pdfcomposer
+    image: ghcr.io/gdi-live/pdfcomposer:${IMAGE_VERSION:?definí IMAGE_VERSION en el .env}
     restart: unless-stopped
     environment:
       # El servicio lee API_KEY (app/config.py); PDFCOMPOSER_API_KEY es el nombre en el .env.
@@ -95,7 +86,7 @@ services:
     # Sin puerto expuesto al host: solo lo usa el backend por la red interna (:8080)
 
   notary:
-    build: ./GDI-Backend/microservices/notary
+    image: ghcr.io/gdi-live/notary:${IMAGE_VERSION:?definí IMAGE_VERSION en el .env}
     restart: unless-stopped
     environment:
       # El servicio lee API_KEY (app/config.py); NOTARY_API_KEY es el nombre en el .env.
@@ -114,7 +105,7 @@ services:
 
   # ---------- Backend principal ----------
   backend:
-    build: ./GDI-Backend
+    image: ghcr.io/gdi-live/backend:${IMAGE_VERSION:?definí IMAGE_VERSION en el .env}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -149,6 +140,10 @@ services:
       NOTARY_URL: http://notary:8080
       NOTARY_API_KEY: ${NOTARY_API_KEY}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # Descifra la contraseña de los certificados de firma y los secretos de webhooks
+      # (Fernet). Sin esto, firmar con certificado falla con "CERT_MASTER_KEY no configurada".
+      CERT_MASTER_KEY: ${CERT_MASTER_KEY:?falta CERT_MASTER_KEY en el .env (correr scripts/generar-claves.sh)}
+      CERT_R2_BUCKET: ${CERT_R2_BUCKET:-gdi-certificates}
       # Almacenamiento (R2 o MinIO — ver .env)
       CF_R2_ENDPOINT: ${CF_R2_ENDPOINT}
       CF_R2_ACCESS_KEY_ID: ${CF_R2_ACCESS_KEY_ID}
@@ -183,9 +178,7 @@ services:
 
   # ---------- MCP Gateway ----------
   gateway:
-    build:
-      context: ./GDI-Backend
-      dockerfile: Dockerfile.gateway
+    image: ghcr.io/gdi-live/gateway:${IMAGE_VERSION:?definí IMAGE_VERSION en el .env}
     restart: unless-stopped
     depends_on:
       postgres:
@@ -211,6 +204,9 @@ services:
       PDFCOMPOSER_API_KEY: ${PDFCOMPOSER_API_KEY}
       NOTARY_URL: http://notary:8080
       NOTARY_API_KEY: ${NOTARY_API_KEY}
+      # Misma clave que el backend: firma por MCP/REST con certificado y webhooks de TAD.
+      CERT_MASTER_KEY: ${CERT_MASTER_KEY:?falta CERT_MASTER_KEY en el .env (correr scripts/generar-claves.sh)}
+      CERT_R2_BUCKET: ${CERT_R2_BUCKET:-gdi-certificates}
       # URL publica del propio gateway: es el audience que valida el MCP.
       MCP_RESOURCE_URI: ${GATEWAY_URL}
       FRONTEND_URL: ${FRONTEND_URL}
@@ -237,15 +233,12 @@ services:
 
   # ---------- Frontend ----------
   frontend:
-    build:
-      context: ./GDI-Frontend
-      args:
-        # NEXT_PUBLIC_* se hornea en build (Next lo inlinea en el bundle del cliente).
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+    image: ghcr.io/gdi-live/frontend:${IMAGE_VERSION:?definí IMAGE_VERSION en el .env}
     restart: unless-stopped
     depends_on: [backend]
     environment:
-      # URLs públicas (las sirve nginx-proxy-manager por HTTPS)
+      # URL pública de la API. La imagen trae un marcador y su entrypoint lo reemplaza
+      # al arrancar: cambiar el dominio es editar el .env y reiniciar, no recompilar.
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
       # Auth0 — app del frontend (portal de usuarios)
       AUTH0_DOMAIN: ${AUTH0_DOMAIN}

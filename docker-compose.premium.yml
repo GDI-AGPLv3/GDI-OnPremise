@@ -24,7 +24,7 @@ services:
 
   # ---------- BackOffice Back (administración) ----------
   backoffice-back:
-    image: ghcr.io/gdi-live/backoffice-back:${IMAGE_VERSION}
+    image: ghcr.io/gdi-live/backoffice-back:${IMAGE_VERSION:?definí IMAGE_VERSION en el .env}
     restart: unless-stopped
     depends_on:
       backend:
@@ -49,6 +49,10 @@ services:
       AUTH0_FRONTEND_CLIENT_ID: ${AUTH0_FRONTEND_CLIENT_ID:-}
       AUTH0_BACKOFFICE_CLIENT_ID: ${AUTH0_BACKOFFICE_CLIENT_ID:-}
       INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+      # Cifra los certificados de firma y las API keys que se cargan desde el BackOffice.
+      # La MISMA clave que el backend: él descifra lo que el BackOffice cifra.
+      CERT_MASTER_KEY: ${CERT_MASTER_KEY:?falta CERT_MASTER_KEY en el .env (correr scripts/generar-claves.sh)}
+      CERT_R2_BUCKET: ${CERT_R2_BUCKET:-gdi-certificates}
       # CORS: el backoffice-back acepta requests del backoffice-front
       FRONTEND_URL: ${BACKOFFICE_URL}
       # URL del BackOffice para el bloque "podes ingresar por..." del mail al admin
@@ -79,7 +83,7 @@ services:
 
   # ---------- BackOffice Front ----------
   backoffice-front:
-    image: ghcr.io/gdi-live/backoffice-front:${IMAGE_VERSION}
+    image: ghcr.io/gdi-live/backoffice-front:${IMAGE_VERSION:?definí IMAGE_VERSION en el .env}
     restart: unless-stopped
     depends_on: [backoffice-back]
     environment:
@@ -95,7 +99,7 @@ services:
 
   # ---------- AgenteLANG (IA) ----------
   agentelang:
-    image: ghcr.io/gdi-live/agentelang:${IMAGE_VERSION}
+    image: ghcr.io/gdi-live/agentelang:${IMAGE_VERSION:?definí IMAGE_VERSION en el .env}
     restart: unless-stopped
     depends_on:
       postgres:

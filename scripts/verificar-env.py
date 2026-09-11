@@ -61,6 +61,11 @@ RE_GETENV_SOLO = re.compile(
 RE_GETENV_DEFAULT = re.compile(
     r"""os\.(?:getenv|environ\.get)\(\s*["']([A-Z0-9_]+)["']\s*,"""
 )
+# os.getenv("X", "")  -> el default es vacio: equivale a NO tener default. Pasarla
+# vacia desde el compose no anula nada, y si despues hay un raise es obligatoria.
+RE_GETENV_VACIO = re.compile(
+    r"""os\.(?:getenv|environ\.get)\(\s*["']([A-Z0-9_]+)["']\s*,\s*(?:""|'')\s*\)"""
+)
 # http://servicio:puerto  dentro de un valor del compose
 RE_URL_INTERNA = re.compile(r"""https?://([a-z0-9][a-z0-9_-]*):(\d{2,5})""")
 # Linea que lanza una excepcion nombrando una variable: la vuelve obligatoria de
@@ -112,19 +117,60 @@ def env_del_servicio(cfg):
     return {k: ("" if v is None else str(v)) for k, v in entorno.items()}
 
 
+# Modelo de imagenes (GDI-305): el compose ya no tiene `build:`. El codigo de cada imagen
+# PROPIA se ubica por su nombre en ghcr.io/gdi-live. Sin este mapa todos los servicios
+# caerian en "baja como imagen, no tenemos su fuente" y el chequeo daria un verde vacio.
+# (repos candidatos, Dockerfile) — el primer repo que exista bajo --repos.
+FUENTE_DE_IMAGEN = {
+    "postgres": (("GDI-BD",), "Dockerfile.prd"),
+    "migrator": (("GDI-BD",), "Dockerfile.migrator"),
+    "backend": (("GDI-Backend",), "Dockerfile"),
+    "gateway": (("GDI-Backend",), "Dockerfile.gateway"),
+    "frontend": (("GDI-FRONTEND", "GDI-Frontend"), "Dockerfile"),
+    "pdfcomposer": (("GDI-PDFComposer",), "Dockerfile"),
+    "notary": (("GDI-Notary",), "Dockerfile"),
+    "backoffice-back": (("GDI-BackOffice-Back",), "Dockerfile"),
+    "backoffice-front": (("GDI-BackOffice-Front",), "Dockerfile"),
+    "agentelang": (("GDI-AgenteLANG",), "Dockerfile"),
+}
+RE_IMAGEN_PROPIA = re.compile(r"^ghcr\.io/gdi-live/([a-z0-9-]+):")
+
+
+def imagen_propia(cfg):
+    """Nombre de la imagen si es nuestra (ghcr.io/gdi-live/<nombre>:...), si no None."""
+    m = RE_IMAGEN_PROPIA.match(str(cfg.get("image") or ""))
+    return m.group(1) if m else None
+
+
 def ruta_del_build(cfg, raiz):
-    """Ruta al codigo fuente de un servicio que se compila, o None si es imagen."""
+    """
+    Ruta al codigo fuente del servicio: su contexto de build o, si baja como imagen
+    propia, el repo del que sale. None solo para imagenes de terceros (redis, minio...).
+    """
     build = cfg.get("build")
-    if not build:
+    if build:
+        contexto = build if isinstance(build, str) else build.get("context", ".")
+        return (raiz / contexto).resolve()
+    nombre = imagen_propia(cfg)
+    if nombre is None:
         return None
-    contexto = build if isinstance(build, str) else build.get("context", ".")
-    return (raiz / contexto).resolve()
+    if nombre not in FUENTE_DE_IMAGEN:
+        # Imagen nuestra que el mapa no conoce: ruta inexistente => SIN_VERIFICAR, no verde.
+        return (raiz / f"<imagen {nombre} sin fuente conocida>").resolve()
+    repos, _ = FUENTE_DE_IMAGEN[nombre]
+    for repo in repos:
+        if (raiz / repo).exists():
+            return (raiz / repo).resolve()
+    return (raiz / repos[0]).resolve()
 
 
 def nombre_dockerfile(cfg):
     build = cfg.get("build")
     if isinstance(build, dict):
         return build.get("dockerfile", "Dockerfile")
+    nombre = imagen_propia(cfg)
+    if nombre in FUENTE_DE_IMAGEN:
+        return FUENTE_DE_IMAGEN[nombre][1]
     return "Dockerfile"
 
 
@@ -269,8 +315,9 @@ def escanear_codigo(archivos):
         except OSError:
             continue
         obligatorias |= set(RE_ENVIRON.findall(texto))
-        con_default |= set(RE_GETENV_DEFAULT.findall(texto))
-        leidas_sin_default = set(RE_GETENV_SOLO.findall(texto))
+        vacio_aca = set(RE_GETENV_VACIO.findall(texto))
+        con_default |= set(RE_GETENV_DEFAULT.findall(texto)) - vacio_aca
+        leidas_sin_default = set(RE_GETENV_SOLO.findall(texto)) | vacio_aca
         sin_default |= leidas_sin_default
 
         # Una variable que se lee sin default y despues aparece en un raise es
@@ -304,7 +351,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--repos", default=".",
-                    help="carpeta donde estan GDI-Backend, GDI-Frontend y GDI-BD")
+                    help="carpeta donde estan los repos de las 10 imagenes (GDI-Backend, "
+                           "GDI-FRONTEND, GDI-BD, GDI-PDFComposer, GDI-Notary, "
+                           "GDI-BackOffice-Back, GDI-BackOffice-Front, GDI-AgenteLANG)")
     ap.add_argument("-f", "--file", action="append", dest="archivos", required=True,
                     help="docker-compose a verificar (repetible, como docker compose -f)")
     ap.add_argument("--estricto", action="store_true",
@@ -333,7 +382,7 @@ def main():
         entorno = env_del_servicio(cfg)
         codigo = ruta_del_build(cfg, raiz)
         if codigo is None:
-            continue  # servicio que baja como imagen: no tenemos su fuente
+            continue  # imagen de terceros (redis, minio, npm): no es codigo nuestro
 
         # Un chequeo que no encuentra el codigo NO puede pasar en verde: seria
         # exactamente el falso verde que este script existe para evitar.
