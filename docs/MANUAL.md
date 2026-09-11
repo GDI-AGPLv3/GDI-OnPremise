@@ -11,12 +11,11 @@ Guía paso a paso para instalar GDI en el servidor de tu municipio. Pensada para
 Este manual describe el flujo Premium completo. Algunas automatizaciones están **en construcción** y se marcan con 🚧 a lo largo del documento:
 - 🚧 Verificación automática de licencia `.lic`
 - 🚧 Wizard visual "crear instancia" en el BackOffice
-- 🚧 Runner de migraciones de BD al arranque
-- 🚧 Runner de migraciones: hoy el esquema queda en el estado del instalador inicial.
-- ℹ️ La instalación es **híbrida y así funciona**: 7 servicios se compilan en tu servidor
-  (backend, gateway, portal, base de datos y los 2 microservicios) y 3 bajan como imagen
-  desde el registro de GDI (BackOffice, BackOffice-Front y AgenteLANG). Los pasos 3, 7 y 11
-  reflejan esa realidad: por eso actualizar necesita `git pull` **y** `--build`, no solo `pull`.
+- ℹ️ **En tu servidor no se compila nada.** Los 10 servicios de GDI bajan como imágenes desde el
+  registro de GDI, todos con la misma versión (`IMAGE_VERSION`). Lo único que se descarga con
+  `git` es este instalador (paso 3).
+- ℹ️ Las migraciones de la base se aplican solas: el servicio `migrator` corre antes que el
+  backend en cada arranque.
 
 Donde veas 🚧, el paso final puede requerir asistencia de GDI Latam por ahora.
 
@@ -25,7 +24,7 @@ Donde veas 🚧, el paso final puede requerir asistencia de GDI Latam por ahora.
 ## 0. Qué te entrega GDI Latam
 
 Al contratar el plan Premium, GDI te manda por mail:
-1. **Un token de acceso a `ghcr.io`** — la llave para descargar las imágenes de los módulos pagos (BackOffice, AgenteLANG).
+1. **Un token de acceso a `ghcr.io`** — la llave para descargar las imágenes de GDI (los 10 servicios). Sin él no se puede instalar ni actualizar.
 2. **Tu archivo de licencia `.lic`** — desbloquea los módulos pagos y define cuántas instancias podés correr.
 
 Guardá los dos en un lugar seguro. Los vas a usar en los pasos 6 y 7.
@@ -63,34 +62,28 @@ docker --version && docker compose version
 
 ---
 
-## 3. Descargar el código
+## 3. Descargar el instalador
 
-Los repos van todos en la misma carpeta:
+**Todo GDI se instala en una versión, y es una sola para los 10 servicios.** Te la indica
+GDI en el mail de entrega, con el formato `AAAA.MM.N` (por ejemplo `2026.09.0`). La misma
+que después va en `IMAGE_VERSION` (paso 5).
 
-**Todo GDI se instala en una versión, y es una sola para las 10 piezas.** Te la indica
-GDI en el mail de entrega, con el formato `AAAA.MM`. La misma que después va en
-`IMAGE_VERSION` (paso 5).
+Lo único que se descarga es este instalador (el compose y el manual). El código de la
+aplicación **no se clona**: los servicios bajan ya armados como imágenes en el paso 7.
 
 ```bash
 sudo mkdir -p /opt/gdi && sudo chown $USER /opt/gdi && cd /opt/gdi
 
 # La versión que te indicó GDI. Cambiala por la tuya:
-VERSION=2026.09
+VERSION=2026.09.0
 
 git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
-git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Backend.git
-git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Frontend.git
-git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-BD.git
 ```
 
-> ⚠️ **No clones sin `--branch`.** Sin la versión te traés la rama principal, que es
-> "lo último publicado" y puede no coincidir con las imágenes del paso 7: tendrías un
-> backend de una versión hablándole a módulos de otra. Si el clone falla con
-> `Remote branch not found`, esa versión todavía no se publicó: avisale a GDI antes
-> de seguir, no lo destrabes sacando el `--branch`.
-
-> Los microservicios (pdfcomposer, notary) vienen **dentro de GDI-Backend** (`microservices/`). No se clonan aparte.
-> El BackOffice y AgenteLANG NO se clonan: vienen como imágenes pre-armadas desde `ghcr.io` (paso 7).
+> ⚠️ **No clones sin `--branch`.** Sin la versión te traés la rama principal, que puede no
+> coincidir con las imágenes de tu versión (una variable que falta, un servicio nuevo). Si el
+> clone falla con `Remote branch not found`, esa versión todavía no se publicó: avisale a GDI
+> antes de seguir, no lo destrabes sacando el `--branch`.
 
 ---
 
@@ -168,16 +161,21 @@ Si falta algo, el propio log te dice qué variable es:
 ```bash
 cd /opt/gdi
 cp .env.example .env
-./scripts/generar-claves.sh    # genera las 4 claves internas automáticamente
+./scripts/generar-claves.sh    # genera las claves internas automáticamente
 nano .env
 ```
+
+> ⚠️ Una de esas claves, `CERT_MASTER_KEY`, cifra los certificados de firma. **No la cambies
+> nunca ni la pierdas**: sin la original, los certificados cargados no se pueden usar. Viaja
+> dentro del `.env`, que es parte del backup (sección 12).
 
 Completá estos valores (el resto podés dejarlos por default):
 
 ```env
 # Versión del set de imágenes — te la indica GDI en el mail de entrega.
-# Si no coincide con una versión publicada, el paso 7 falla con "manifest unknown".
-IMAGE_VERSION=2026.08
+# Formato AAAA.MM.N, la misma del paso 3. Si no coincide con una versión publicada,
+# el paso 7 falla con "manifest unknown".
+IMAGE_VERSION=2026.09.0
 
 # Base de datos
 DB_PASSWORD=una-password-larga-y-segura
@@ -280,10 +278,10 @@ Y levantá todo (premium + MinIO local):
 
 ```bash
 cd /opt/gdi
-docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
 ```
 
-La primera vez tarda varios minutos (compila el backend y el frontend, baja las imágenes). Mirá el progreso con:
+La primera vez tarda varios minutos: baja las imágenes de los 10 servicios. Mirá el progreso con:
 
 ```bash
 docker compose ps
@@ -319,10 +317,10 @@ El reverse proxy (nginx-proxy-manager) tiene una interfaz web. **No hace falta t
 | admin-api.tu-municipio.gob.ar | `backoffice-back` | 8080 |
 | mcp.tu-municipio.gob.ar | `gateway` | 8080 |
 
-> ℹ️ **Si más adelante cambiás alguno de los 4 dominios**, no alcanza con reiniciar:
-> el portal lleva la dirección de la API incrustada desde que se compiló. Hay que
-> actualizar el `.env` y recompilarlo:
-> `docker compose ... up -d --build frontend`
+> ℹ️ **Si más adelante cambiás alguno de los dominios**, actualizá el `.env` y volvé a
+> correr el `up -d` del paso 7: el portal toma la dirección nueva de la API al arrancar.
+> Un `docker compose restart` **no alcanza**: reinicia el contenedor viejo, que ya tiene
+> la dirección anterior escrita. El `up -d` lo recrea.
 
 4. En el Proxy Host de **`api.tu-municipio.gob.ar`**, pestaña **Custom locations**,
    agregá una entrada. Es la que sirve las **fotos de perfil**: las pide el navegador
@@ -400,29 +398,24 @@ sin que nadie lo haya decidido.
 ```bash
 cd /opt/gdi
 
-# 1. La versión nueva (la que dice el mail de GDI). Es UNA sola para las 10 piezas.
-VERSION=2026.09
-nano .env                      # IMAGE_VERSION=2026.09  (el mismo número)
+# 1. La versión nueva (la que dice el mail de GDI). Es UNA sola para los 10 servicios.
+VERSION=2026.09.1
+nano .env                      # IMAGE_VERSION=2026.09.1  (el mismo número)
 
-# 2. Traer el código nuevo de los servicios que se compilan en tu servidor
-#    (backend, gateway, frontend, base de datos y los microservicios).
+# 2. El instalador de esa versión: el compose puede traer una variable o un servicio nuevo.
 #    Estás parado en una versión, no en una rama: se cambia de versión, no se hace pull.
-for r in . GDI-Backend GDI-Frontend GDI-BD; do
-  git -C "$r" fetch --tags origin && git -C "$r" checkout "v$VERSION" || {
-    echo "ERROR: la version v$VERSION no existe en $r. NO sigas: avisale a GDI."; break; }
-done
+#    Si falla con "did not match any file(s)", esa versión no existe: NO sigas, avisale a GDI.
+git fetch --tags origin && git checkout "v$VERSION"
 
-# 3. Bajar las imágenes nuevas de los módulos Premium
+# 3. Bajar las imágenes de la versión nueva
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml pull
 
-# 4. Recompilar y reemplazar los contenedores por los de la versión nueva
-docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d --build
+# 4. Reemplazar los contenedores. Antes del backend corre el migrator con las migraciones nuevas.
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
 ```
 
-> ⚠️ **Los pasos 2 y 4 no son opcionales.** De los 10 servicios de GDI, solo 3
-> (BackOffice, BackOffice-Front y AgenteLANG) bajan como imagen. Los otros 7 se
-> compilan en tu servidor, así que un `pull` solo **no los actualiza**: te quedarías
-> con los módulos Premium nuevos hablándole a un backend viejo.
+> ⚠️ **No te saltees el paso 2.** Si cambiás `IMAGE_VERSION` pero te quedás con el instalador
+> viejo, las imágenes nuevas pueden arrancar sin una variable que necesitan.
 
 Si usás Cloudflare R2 en lugar de MinIO, sacá el `-f docker-compose.minio.yml` de los dos comandos.
 
@@ -441,7 +434,8 @@ querés enterarte, con el backup fresco y la ventana todavía abierta.
 Volver a la versión anterior son **dos** cosas, y las dos son necesarias:
 
 ```bash
-nano .env    # IMAGE_VERSION=<la versión anterior, formato AAAA.MM>
+nano .env    # IMAGE_VERSION=<la versión anterior, formato AAAA.MM.N>
+git checkout "v<la versión anterior>"
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
 ```
 
@@ -468,8 +462,9 @@ el contrato — el núcleo (expedientes, documentos, firma) sigue funcionando ig
 > la sección 12 pide guardar una **copia local de las imágenes**: con eso el sistema se levanta
 > de nuevo aunque no tengas acceso al registro.
 
-🚧 Las migraciones de base de datos se aplican solas al arrancar el backend (runner en
-construcción). Por ahora, GDI te avisa si una actualización requiere correr migraciones a mano.
+Las migraciones de la base las aplica el servicio `migrator` antes de que arranque el backend.
+Si una falla, el backend no arranca: `docker compose logs migrator` dice cuál. No fuerces el
+arranque; escribinos con ese log (y tenés el backup del paso anterior).
 
 ---
 
@@ -564,7 +559,8 @@ docker run --rm -v gdi_minio_data:/data -v /opt/gdi/backups:/backup alpine \
 | Al crear un usuario: "Sistema de autenticación no disponible" | Falta la aplicación Machine to Machine de Auth0 | Paso 4.4. Confirmá con `docker compose logs backoffice-back \| grep FALTA` |
 | El usuario nunca recibe el mail de activación | No hay correo configurado, o el SMTP rechaza | Paso 5.1. Mientras tanto, usá el enlace que muestra el BackOffice en pantalla al crear el usuario |
 | El mail sale pero el botón lleva al lugar equivocado | Falta `AUTH0_FRONTEND_CLIENT_ID` o `AUTH0_BACKOFFICE_CLIENT_ID` | Paso 4.3; el log de arranque los reporta |
-| No baja una imagen paga | Token de ghcr.io vencido o mal | Volvé a hacer `docker login ghcr.io` (paso 7) |
+| No baja una imagen (`denied` o `manifest unknown`) | Token de ghcr.io vencido o mal, o `IMAGE_VERSION` mal escrita | `docker login ghcr.io` (paso 7) y revisá que `IMAGE_VERSION` tenga el formato `AAAA.MM.N` |
+| El backend no arranca y `migrator` figura `exited (1)` | Falló una migración | `docker compose logs migrator`. No fuerces el arranque: escribinos con ese log |
 
 Para ver el estado de todo: `docker compose ps` y `docker compose logs -f <servicio>`.
 

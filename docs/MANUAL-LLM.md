@@ -7,26 +7,30 @@
 
 ## ROL Y OBJETIVO
 Guiar a un técnico municipal a dejar GDI Premium corriendo en un servidor Linux con HTTPS.
-Resultado esperado: 4 dominios sirviendo por HTTPS, todos los contenedores `healthy`/`running`,
+Resultado esperado: 5 dominios sirviendo por HTTPS, todos los contenedores `healthy`/`running`,
 y el técnico pudiendo loguearse al BackOffice.
 
 ## HECHOS DEL SISTEMA (no cambian)
 - OS objetivo: Linux (Ubuntu 22.04+). Docker + Docker Compose v2.
 - Directorio de trabajo: `/opt/gdi`.
-- Repos a clonar (4): `GDI-OnPremise` (compose, va en `.`), `GDI-Backend`, `GDI-Frontend`, `GDI-BD`.
-- Microservicios pdfcomposer/notary: BUNDLEADOS en `GDI-Backend/microservices/`. No se clonan aparte.
-- Módulos pagos (imágenes ghcr.io, NO se clonan): `backoffice-back`, `backoffice-front`, `agentelang`.
-- Postgres se buildea desde `GDI-BD/Dockerfile.prd` (sin demo). El sistema arranca SIN instancias.
+- Se clona UN solo repo: `GDI-OnPremise` (compose + manual, va en `.`), por tag `v<VERSION>`.
+  El código de la aplicación NO se clona y en el servidor NO se compila nada.
+- Los 10 servicios de GDI son imágenes `ghcr.io/gdi-live/<servicio>:${IMAGE_VERSION}` (requieren
+  token): postgres, migrator, backend, gateway, frontend, pdfcomposer, notary, backoffice-back,
+  backoffice-front, agentelang. `IMAGE_VERSION` formato `AAAA.MM.N`, la MISMA para todas.
+- Postgres arranca sin demo y el sistema arranca SIN instancias. `migrator` aplica las migraciones
+  y termina; backend, gateway y agentelang esperan a que termine bien.
 - Puertos internos: backend 8080, gateway 8080, pdfcomposer 8080, notary 8080, frontend 3000,
   backoffice-back 8080, backoffice-front 3000, agentelang 8080, postgres 5432, redis 6379, minio 9000.
 - Único expuesto al host: npm (nginx-proxy-manager) en 80, 443, 81.
 - Comando de arranque Premium+MinIO:
-  `docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d --build`
+  `docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d`
 
 ## ENTRADAS REQUERIDAS DEL USUARIO (pedilas antes de empezar)
 | Variable | Origen | Ejemplo |
 |----------|--------|---------|
 | `<TOKEN_GHCR>` | mail de GDI Latam | ghp_xxx |
+| `<VERSION>` | mail de GDI Latam (= `IMAGE_VERSION`) | 2026.09.0 |
 | `<USUARIO_GITHUB>` | el del token | muni-tech |
 | `<ARCHIVO_LIC>` | mail de GDI Latam | tu-licencia.lic |
 | `<DOMINIO_BASE>` | DNS del municipio | tu-municipio.gob.ar |
@@ -39,7 +43,7 @@ y el técnico pudiendo loguearse al BackOffice.
 | `<OPENROUTER_API_KEY>` | openrouter.ai | sk-or-xxx |
 | `<DB_PASSWORD>`, `<MINIO_PASSWORD>` | inventadas, seguras | — |
 
-DNS: 4 registros A → IP del server: `gdi.<BASE>`, `api.<BASE>`, `admin.<BASE>`, `admin-api.<BASE>`.
+DNS: 5 registros A → IP del server: `gdi.<BASE>`, `api.<BASE>`, `admin.<BASE>`, `admin-api.<BASE>`, `mcp.<BASE>`.
 
 ## PASOS
 
@@ -50,19 +54,14 @@ sudo usermod -aG docker $USER   # requiere re-login
 ```
 CHECK: `docker compose version` imprime v2.x. Si no: FAILURES/F1.
 
-### P2 — Clonar
+### P2 — Descargar el instalador
 ```bash
 sudo mkdir -p /opt/gdi && sudo chown $USER /opt/gdi && cd /opt/gdi
-VERSION=2026.09   # la version que te indico GDI (la misma para las 10 piezas)
-
+VERSION=<VERSION>   # la que indicó GDI, formato AAAA.MM.N (ej 2026.09.0)
 git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-OnPremise.git .
-git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Backend.git
-git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-Frontend.git
-git clone --branch "v$VERSION" https://github.com/GDI-AGPLv3/GDI-BD.git
 ```
-CHECK: existen `/opt/gdi/docker-compose.yml`, `/opt/gdi/GDI-Backend/microservices/pdfcomposer/`,
-`/opt/gdi/GDI-Backend/microservices/notary/`, `/opt/gdi/GDI-Frontend/Dockerfile`, `/opt/gdi/GDI-BD/Dockerfile.prd`.
-Si falta `microservices/`: FAILURES/F2.
+CHECK: existen `/opt/gdi/docker-compose.yml`, `/opt/gdi/docker-compose.premium.yml` y `/opt/gdi/.env.example`.
+Si el clone da `Remote branch not found`: la versión no existe → FAILURES/F2.
 
 ### P3 — Auth0 (guiar al usuario, no es automatizable por CLI)
 1. Crear API con Identifier = `<AUTH0_AUDIENCE>` (URI inventado, NO una URL real).
@@ -83,6 +82,7 @@ cd /opt/gdi && cp .env.example .env && ./scripts/generar-claves.sh
 ```
 Editar `.env` y setear (con los valores del usuario):
 ```
+IMAGE_VERSION=<VERSION>
 DB_PASSWORD, AUTH0_DOMAIN, AUTH0_AUDIENCE,
 AUTH0_FRONTEND_CLIENT_ID, AUTH0_FRONTEND_CLIENT_SECRET,
 AUTH0_BACKOFFICE_CLIENT_ID, AUTH0_BACKOFFICE_CLIENT_SECRET,
@@ -95,6 +95,7 @@ FRONTEND_URL=https://gdi.<BASE>
 NEXT_PUBLIC_API_URL=https://api.<BASE>
 BACKOFFICE_URL=https://admin.<BASE>
 BACKOFFICE_API_URL=https://admin-api.<BASE>
+GATEWAY_URL=https://mcp.<BASE>
 CF_R2_ENDPOINT=http://minio:9000
 CF_R2_ACCESS_KEY_ID=minioadmin
 CF_R2_SECRET_ACCESS_KEY=<MINIO_PASSWORD>
@@ -106,7 +107,9 @@ S3_FORCE_PATH_STYLE=true
 OPENROUTER_API_KEY=<OPENROUTER_API_KEY>
 GDI_LICENSE_HOST_DIR=./license
 ```
-`generar-claves.sh` ya seteó INTERNAL_API_KEY/PDFCOMPOSER_API_KEY/NOTARY_API_KEY/AUTH0_SECRET.
+`generar-claves.sh` ya seteó INTERNAL_API_KEY/PDFCOMPOSER_API_KEY/NOTARY_API_KEY/AUTH0_SECRET y
+CERT_MASTER_KEY (esta última SOLO si estaba vacía). NUNCA regenerar ni editar CERT_MASTER_KEY:
+sin la original los certificados de firma cargados quedan ilegibles.
 CHECK: `grep -c CAMBIAR .env` devuelve 0 (no quedaron placeholders).
 
 ### P5 — Licencia + login a ghcr.io
@@ -119,23 +122,26 @@ CHECK: `docker login` responde "Login Succeeded". Si no: FAILURES/F3.
 ### P6 — Levantar
 ```bash
 cd /opt/gdi
-docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
 ```
-CHECK (esperar 3-5 min en el primer build):
-`docker compose ps` → postgres/redis/backend `healthy`; pdfcomposer/notary/frontend/gateway/backoffice-*/agentelang `running`.
+CHECK (esperar 3-5 min: la primera vez baja las imágenes de los 10 servicios):
+`docker compose ps` → migrator `exited (0)`; postgres/redis/backend `healthy`; pdfcomposer/notary/frontend/gateway/backoffice-*/agentelang `running`.
 Si algún servicio `restarting`: `docker compose logs <servicio>` → FAILURES/F4.
 
 ### P7 — Dominios + SSL (nginx-proxy-manager, UI en :81)
 1. El panel escucha SOLO en localhost. Tunel: `ssh -L 8181:localhost:81 user@server` -> `http://localhost:8181`.
    NO existe usuario por defecto: la primera visita CREA el admin. Hacerlo de inmediato: hasta
    entonces un `POST /api/users` sin autenticar se queda con el proxy.
-2. Crear 4 Proxy Hosts (Hosts → Proxy Hosts → Add):
+2. Crear 5 Proxy Hosts (Hosts → Proxy Hosts → Add):
    | Domain | Forward Hostname | Port |
    |--------|------------------|------|
    | gdi.<BASE> | frontend | 3000 |
    | api.<BASE> | backend | 8080 |
    | admin.<BASE> | backoffice-front | 3000 |
    | admin-api.<BASE> | backoffice-back | 8080 |
+   | mcp.<BASE> | gateway | 8080 |
+   En `api.<BASE>`, Custom locations: `/avatars` → `minio:9000`, y en su engranaje
+   `rewrite ^/avatars/(.*)$ /gdi-avatars/$1 break;`. NUNCA `proxy_pass` ahí: nginx no levanta y se cae la API entera.
 3. En cada uno: pestaña SSL → Request new SSL Certificate → Force SSL + HTTP/2 → Save.
 CHECK: `curl -I https://api.<BASE>/health` devuelve 200.
 
@@ -148,13 +154,13 @@ muestra el asistente → completar datos → se crea schema + buckets + admin.
 ## ITEMS EN CONSTRUCCIÓN (🚧) — no prometer como automáticos
 - Verificación automática de licencia `.lic` (hoy: GDI valida al activar).
 - Wizard "crear instancia" (hoy: asistido por GDI).
-- Runner de migraciones al arranque (hoy: GDI avisa si una update requiere migración manual).
-- `AGENTELANG_MODEL` configurable (hoy: modelo fijo en la imagen).
 
 ## FAILURES
 - F1 (docker compose no existe): instalar plugin `docker-compose-plugin` o re-loguear para tomar el grupo docker.
-- F2 (falta GDI-Backend/microservices/): el clone trajo el repo equivocado o incompleto. Re-clonar
-  `https://github.com/GDI-AGPLv3/GDI-Backend.git`. NO se clonan repos pdfcomposer/notary separados.
+- F2 (`Remote branch not found` al clonar, o `manifest unknown` al bajar imágenes): esa versión no
+  está publicada o está mal escrita (formato `AAAA.MM.N`). NO probar con otra versión: avisar a GDI.
+- F5 (`migrator` en `exited (1)` y el backend no arranca): falló una migración. `docker compose logs migrator`
+  y escalar a GDI con ese log. NO forzar el arranque del backend.
 - F3 (docker login falla): token vencido/incorrecto. Pedir token nuevo a GDI Latam.
 - F4 (servicio restarting): leer `docker compose logs <servicio>`. Causas típicas:
   - falta una env en `.env` → completarla.
@@ -172,16 +178,15 @@ Nada es automático: el municipio decide cuándo. No programar updates ni sugeri
 
 ```bash
 # 0. BACKUP COMPLETO (ver abajo) y verificar tamaños con `ls -lh`
-nano .env    # IMAGE_VERSION=<version nueva que indico GDI, formato AAAA.MM>
-# 7 de los 10 servicios se compilan local: sin git pull + --build no se actualizan.
-VERSION=2026.09   # la version nueva (la misma que IMAGE_VERSION)
-# Estas parado en una version, no en una rama: se cambia de version, no se hace pull.
-for r in . GDI-Backend GDI-Frontend GDI-BD; do git -C "$r" fetch --tags origin && git -C "$r" checkout "v$VERSION"; done
+VERSION=<version nueva que indico GDI, formato AAAA.MM.N>
+nano .env    # IMAGE_VERSION=$VERSION (el mismo numero)
+# El instalador de esa version: el compose puede traer una variable o un servicio nuevo.
+git fetch --tags origin && git checkout "v$VERSION"
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml pull
 docker compose -f docker-compose.yml -f docker-compose.premium.yml -f docker-compose.minio.yml up -d
 docker compose ps && docker compose logs --tail=50 backend
 ```
-Rollback = DOS cosas: bajar `IMAGE_VERSION` **y** restaurar el dump. Solo lo primero deja el
+Rollback = DOS cosas: bajar `IMAGE_VERSION` (con `git checkout` del tag anterior) **y** restaurar el dump. Solo lo primero deja el
 schema migrado contra código viejo (sistema roto).
 
 ### DOS LLAVES DISTINTAS — no confundirlas al diagnosticar
